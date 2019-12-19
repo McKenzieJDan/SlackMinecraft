@@ -1,0 +1,18 @@
+# Maven
+/build.xml
+
+# various other potential build files
+/build
+/bin
+/dist
+/target
+/manifest.mf
+
+# Mac filesystem dust
+.DS_Store
+
+# intellij
+*.iml
+*.ipr
+*.iws
+.idea/*

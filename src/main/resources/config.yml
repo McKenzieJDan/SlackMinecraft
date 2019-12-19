@@ -1,0 +1,16 @@
+# Create a bot at https://my.slack.com/services/new/bot and paste token here.
+
+slack:
+  enabled: true
+  token: ""
+  channel: ""
+  debug: false
+
+i18n:
+  botName: "Server"
+  connected: ":white_check_mark: Connected to the server"
+  disconnected: ":x: Disconnected from the server"
+  joinedGame: "Joined the game"
+  leftGame: "Left the game"
+  advancementDone: ":trophy: Has made the advancement "
+  death: ":skull: "
