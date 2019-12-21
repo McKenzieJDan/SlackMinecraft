@@ -4,13 +4,14 @@ slack:
   enabled: true
   token: ""
   channel: ""
+  icon: "https://logo.clearbit.com/minecraft.net"
   debug: false
 
 i18n:
-  botName: "Server"
-  connected: ":white_check_mark: Connected to the server"
-  disconnected: ":x: Disconnected from the server"
-  joinedGame: "Joined the game"
-  leftGame: "Left the game"
+  botName: "Minecraft"
+  connected: ":white_check_mark: Online"
+  disconnected: ":x: Offline"
+  joinedGame: "_Joined the game_"
+  leftGame: "_Left the game_"
   advancementDone: ":trophy: Has made the advancement "
   death: ":skull: "
