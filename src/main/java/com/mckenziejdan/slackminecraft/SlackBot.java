@@ -51,13 +51,13 @@ public class SlackBot{
         new Thread(() -> {
             ChatColor.stripColor(message);
             String formatMsg = convertMentions(message);
-
             SlackPreparedMessage msg = new SlackPreparedMessage.Builder().withMessage(formatMsg).build();
             SlackChatConfiguration config;
+
             if(username != null)
                 config = SlackChatConfiguration.getConfiguration().withName(username).withIcon(icon);
             else
-                config = SlackChatConfiguration.getConfiguration().withName(instance.getConfig().getString("i18n.botName"));
+                config = SlackChatConfiguration.getConfiguration().withName(instance.getConfig().getString("i18n.botName")).withIcon(instance.getConfig().getString("slack.icon"));
 
             session.sendMessage(channel, msg, config);
 
