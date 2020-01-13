@@ -7,6 +7,7 @@ import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 
 import java.util.Arrays;
 import java.util.stream.Collectors;
@@ -61,6 +62,19 @@ public class PlayerListener implements Listener {
                 .map(s -> s.substring(0, 1).toUpperCase() + s.substring(1))
                 .collect(Collectors.joining(" "));
         String message = instance.getConfig().getString("i18n.advancementDone") + advancementName;
+        String playerName = e.getPlayer().getDisplayName();
+        String icon = "https://www.mc-heads.net/avatar/" + e.getPlayer().getUniqueId();
+
+        slackBot.sendMessage(message, playerName, icon);
+    }
+
+    @EventHandler
+    public void onPlayerCommand(PlayerCommandPreprocessEvent e) {
+        if (!instance.getConfig().getBoolean("options.echoCommands")) {
+            return;
+        }
+
+        String message = instance.getConfig().getString("i18n.commandExecuted") + e.getMessage();
         String playerName = e.getPlayer().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + e.getPlayer().getUniqueId();
 

@@ -15,3 +15,7 @@ i18n:
   leftGame: "_Left the game_"
   advancementDone: ":trophy: Has made the advancement "
   death: ":skull: "
+  commandExecuted: ":warning: Executed command: "
+
+options:
+  echoCommands: false
