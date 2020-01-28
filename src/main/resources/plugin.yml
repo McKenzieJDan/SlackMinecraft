@@ -1,5 +1,5 @@
 name: SlackMinecraft
-version: 1.0.2
+version: 1.0.3
 author: McKenzieJDan
 main: com.mckenziejdan.slackminecraft.SlackMinecraft
 api-version: 1.15
