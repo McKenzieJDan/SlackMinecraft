@@ -51,7 +51,7 @@
         <dependency>
             <groupId>com.github.BastianVoigt</groupId>
             <artifactId>simple-slack-api</artifactId>
-            <version>master-f5ff4ccafa-1</version>
+            <version>1.2.0</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
