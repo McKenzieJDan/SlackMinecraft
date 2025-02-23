@@ -38,8 +38,13 @@ public class SlackMinecraft extends JavaPlugin{
     @Override
     public void onDisable(){
         if(slackEnabled){
-            slackBot.sendMessage(getConfig().getString("i18n.disconnected"), null, null);
-            slackBot.stop();
+            try {
+                slackBot.sendMessage(getConfig().getString("i18n.disconnected"), null, null);
+                slackBot.stop();
+            } catch (Exception e) {
+                getLogger().severe("Error stopping Slack bot: " + e.getMessage());
+                e.printStackTrace();
+            }
         }
         slackBot = null;
         instance = null;
