@@ -49,9 +49,9 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>com.github.BastianVoigt</groupId>
-            <artifactId>simple-slack-api</artifactId>
-            <version>master-f5ff4ccafa-1</version>
+            <groupId>com.slack.api</groupId>
+            <artifactId>slack-api-client</artifactId>
+            <version>1.45.3</version>
             <scope>compile</scope>
         </dependency>
         <dependency>
