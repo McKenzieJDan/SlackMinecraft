@@ -10,8 +10,8 @@ A lightweight Spigot plugin that bridges your Minecraft server with Slack, enabl
 - ⌨️ Command execution logging (optional)
 - 🎨 Custom player avatars
 - 👤 Slack username mentions support
-⚙️ Fully configurable messages
-🔧 Debug mode for troubleshooting
+- ⚙️ Fully configurable messages
+- 🔧 Debug mode for troubleshooting
 
 ## Installation
 1. Download the latest release from [GitHub Releases](https://github.com/McKenzieJDan/SlackMinecraft/releases)
