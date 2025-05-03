@@ -27,7 +27,7 @@ public class PlayerListener implements Listener {
         String playerName = playerJoinEvent.getPlayer().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + playerJoinEvent.getPlayer().getUniqueId();
 
-        slackBot.sendMessage(instance.getConfig().getString("i18n.joinedGame"), playerName, icon);
+        slackBot.sendMessage(instance.getConfig().getString(ConfigConstants.I18N_JOINED_GAME), playerName, icon);
     }
 
     @EventHandler
@@ -36,7 +36,7 @@ public class PlayerListener implements Listener {
         String playerName = playerQuitEvent.getPlayer().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + playerQuitEvent.getPlayer().getUniqueId();
 
-        slackBot.sendMessage(instance.getConfig().getString("i18n.leftGame"), playerName, icon);
+        slackBot.sendMessage(instance.getConfig().getString(ConfigConstants.I18N_LEFT_GAME), playerName, icon);
     }
 
     @EventHandler
@@ -52,7 +52,7 @@ public class PlayerListener implements Listener {
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent playerDeathEvent) {
         if (slackBot == null) return;
-        String deathMessage = instance.getConfig().getString("i18n.death") + playerDeathEvent.getDeathMessage();
+        String deathMessage = instance.getConfig().getString(ConfigConstants.I18N_DEATH) + playerDeathEvent.getDeathMessage();
         String playerName = playerDeathEvent.getEntity().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + playerDeathEvent.getEntity().getUniqueId();
 
@@ -66,7 +66,7 @@ public class PlayerListener implements Listener {
         String advancementName = Arrays.stream(rawAdvancementName.substring(rawAdvancementName.lastIndexOf("/") + 1).toLowerCase().split("_"))
                 .map(s -> s.substring(0, 1).toUpperCase() + s.substring(1))
                 .collect(Collectors.joining(" "));
-        String message = instance.getConfig().getString("i18n.advancementDone") + advancementName;
+        String message = instance.getConfig().getString(ConfigConstants.I18N_ADVANCEMENT_DONE) + advancementName;
         String playerName = e.getPlayer().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + e.getPlayer().getUniqueId();
 
@@ -76,11 +76,11 @@ public class PlayerListener implements Listener {
     @EventHandler
     public void onPlayerCommand(PlayerCommandPreprocessEvent e) {
         if (slackBot == null) return;
-        if (!instance.getConfig().getBoolean("options.echoCommands")) {
+        if (!instance.getConfig().getBoolean(ConfigConstants.OPTIONS_ECHO_COMMANDS)) {
             return;
         }
 
-        String message = instance.getConfig().getString("i18n.commandExecuted") + e.getMessage();
+        String message = instance.getConfig().getString(ConfigConstants.I18N_COMMAND_EXECUTED) + e.getMessage();
         String playerName = e.getPlayer().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + e.getPlayer().getUniqueId();
 

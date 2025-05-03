@@ -1,23 +1,42 @@
 # Create a bot at https://my.slack.com/services/new/bot and paste token here.
 
+# Slack integration configuration
 slack:
-  enabled: true
-  token: ""
-  app-token: ""
-  channel: "general"
-  icon: "https://www.minecraft.net/favicon.ico"
-  debug: false
-  cacheRefreshMinutes: 60
+  # Set to true to enable Slack integration, false to disable
+  enabled: true             
+  # Your Slack Bot Token (starts with xoxb-)
+  token: ""                 
+  # Your Slack App-Level Token for Socket Mode (starts with xapp-)
+  app-token: ""             
+  # The Slack channel name (without #) to connect to and relay messages
+  channel: "general"          
+  # URL for the bot's profile picture in Slack (leave empty for default)
+  icon: ""                  
+  # Set to true for extra diagnostic logging in the server console
+  debug: false              
+  # How often (in minutes) to refresh the Slack user list cache (for @mentions)
+  cacheRefreshMinutes: 60 
 
+# Internationalization / Message Customization
 i18n:
-  botName: "Minecraft"
-  connected: ":white_check_mark: Online"
-  disconnected: ":x: Offline"
-  joinedGame: "_Joined the game_"
-  leftGame: "_Left the game_"
-  advancementDone: ":trophy: Has made the advancement "
-  death: ":skull: "
-  commandExecuted: ":warning: Executed command: "
+  # Name used by the bot when posting messages (e.g., server status)
+  botName: "Minecraft"       
+  # Message sent to Slack when the bot connects
+  connected: ":white_check_mark: Online" 
+  # Message sent to Slack when the bot disconnects
+  disconnected: ":x: Offline"    
+  # Message format for player joins
+  joinedGame: "_Joined the game_" 
+  # Message format for player quits
+  leftGame: "_Left the game_"     
+  # Prefix for advancement messages
+  advancementDone: ":trophy: Has made the advancement " 
+  # Prefix for player death messages (followed by Minecraft's death message)
+  death: ":skull: "              
+  # Prefix for command messages (if options.echoCommands is true)
+  commandExecuted: ":warning: Executed command: " 
 
+# Other plugin options
 options:
-  echoCommands: true
+  # Set to true to send messages to Slack when players use commands
+  echoCommands: true        

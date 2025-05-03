@@ -44,7 +44,7 @@ public class SlackBot {
 
     public SlackBot(String botToken, String appToken, String channelName) {
         instance = SlackMinecraft.instance;
-        debug = instance.getConfig().getBoolean("slack.debug");
+        debug = instance.getConfig().getBoolean(ConfigConstants.SLACK_DEBUG);
         // Use a scheduled executor for periodic tasks + general tasks
         scheduledExecutorService = Executors.newScheduledThreadPool(2); 
         executorService = scheduledExecutorService; // Can use the same executor
@@ -103,10 +103,10 @@ public class SlackBot {
 
                     if (connected) {
                         // Send connected message *after* connection is established
-                        sendMessage(instance.getConfig().getString("i18n.connected"), null, null);
+                        sendMessage(instance.getConfig().getString(ConfigConstants.I18N_CONNECTED), null, null);
 
                         // Schedule periodic user cache refresh (e.g., every hour)
-                        long refreshInterval = instance.getConfig().getLong("slack.cacheRefreshMinutes", 60);
+                        long refreshInterval = instance.getConfig().getLong(ConfigConstants.SLACK_CACHE_REFRESH_MINUTES, 60);
                         if (refreshInterval > 0) { // Allow disabling refresh with 0 or negative value
                              scheduledExecutorService.scheduleAtFixedRate(this::refreshUserCache, refreshInterval, refreshInterval, TimeUnit.MINUTES);
                         }
@@ -147,7 +147,7 @@ public class SlackBot {
                     String convertedMessage = convertSlackMentionsToUsernames(messageText);
                     
                     String broadcastMessage = String.format(
-                        instance.getConfig().getString("i18n.slackToMinecraftFormat", "[Slack] <%s> %s"), 
+                        instance.getConfig().getString(ConfigConstants.I18N_SLACK_TO_MINECRAFT_FORMAT, "[Slack] <%s> %s"), 
                         senderName != null ? senderName : "UnknownUser", 
                         convertedMessage
                     );
@@ -277,9 +277,9 @@ public class SlackBot {
                 // Use API client directly to send the final message synchronously if needed
                  apiClient.chatPostMessage(req -> req
                      .channel(channelId)
-                     .text(instance.getConfig().getString("i18n.disconnected"))
-                     .username(instance.getConfig().getString("i18n.botName"))
-                     .iconUrl(instance.getConfig().getString("slack.icon"))
+                     .text(instance.getConfig().getString(ConfigConstants.I18N_DISCONNECTED))
+                     .username(instance.getConfig().getString(ConfigConstants.I18N_BOT_NAME))
+                     .iconUrl(instance.getConfig().getString(ConfigConstants.SLACK_ICON))
                  );
             } catch (IOException | SlackApiException e) {
                 instance.getLogger().warning("Failed to send disconnect message to Slack: " + e.getMessage());
@@ -334,10 +334,10 @@ public class SlackBot {
                 if (username != null) {
                     requestBuilder.username(username);
                     // Use icon URL if provided, otherwise fallback to config (ensure config key exists)
-                    requestBuilder.iconUrl(icon != null ? icon : instance.getConfig().getString("slack.playerIconUrlFallback", null)); 
+                    requestBuilder.iconUrl(icon != null ? icon : instance.getConfig().getString(ConfigConstants.SLACK_PLAYER_ICON_FALLBACK, null)); 
                 } else {
-                    requestBuilder.username(instance.getConfig().getString("i18n.botName", "Minecraft Bot"));
-                    requestBuilder.iconUrl(instance.getConfig().getString("slack.icon", null)); // Use configured bot icon
+                    requestBuilder.username(instance.getConfig().getString(ConfigConstants.I18N_BOT_NAME, "Minecraft Bot"));
+                    requestBuilder.iconUrl(instance.getConfig().getString(ConfigConstants.SLACK_ICON, null)); // Use configured bot icon
                 }
 
                 ChatPostMessageResponse response = apiClient.chatPostMessage(requestBuilder.build());

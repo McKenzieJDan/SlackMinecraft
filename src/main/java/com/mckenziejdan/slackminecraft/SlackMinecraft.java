@@ -27,10 +27,10 @@ public class SlackMinecraft extends JavaPlugin{
         } catch(IOException ignored) {
         }
 
-        if(getConfig().getBoolean("slack.enabled")) {
-            String botToken = getConfig().getString("slack.token");
-            String appToken = getConfig().getString("slack.app-token");
-            String channelName = getConfig().getString("slack.channel");
+        if(getConfig().getBoolean(ConfigConstants.SLACK_ENABLED)) {
+            String botToken = getConfig().getString(ConfigConstants.SLACK_TOKEN);
+            String appToken = getConfig().getString(ConfigConstants.SLACK_APP_TOKEN);
+            String channelName = getConfig().getString(ConfigConstants.SLACK_CHANNEL);
             
             if (botToken == null || botToken.isEmpty() || appToken == null || appToken.isEmpty() || channelName == null || channelName.isEmpty()) {
                  getLogger().severe("Slack Bot Token, App Token, or Channel Name is missing in config.yml! Disabling Slack integration.");
