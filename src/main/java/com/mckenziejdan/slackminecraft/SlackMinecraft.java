@@ -24,7 +24,8 @@ public class SlackMinecraft extends JavaPlugin{
 
         try {
             getConfig().save(configFile);
-        } catch(IOException ignored) {
+        } catch(IOException e) {
+            getLogger().warning("Could not save config.yml: " + e.getMessage());
         }
 
         if(getConfig().getBoolean(ConfigConstants.SLACK_ENABLED)) {
