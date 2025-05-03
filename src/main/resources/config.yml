@@ -40,3 +40,7 @@ i18n:
 options:
   # Set to true to send messages to Slack when players use commands
   echoCommands: true        
+  # List of player UUIDs whose messages/events should NOT be relayed to Slack
+  ignoredPlayers:
+    - "example-uuid-1"
+    - "example-uuid-2"

@@ -31,5 +31,6 @@ public final class ConfigConstants {
 
     // Options Section
     public static final String OPTIONS_ECHO_COMMANDS = "options.echoCommands";
+    public static final String OPTIONS_IGNORED_PLAYERS = "options.ignoredPlayers";
 
 } 

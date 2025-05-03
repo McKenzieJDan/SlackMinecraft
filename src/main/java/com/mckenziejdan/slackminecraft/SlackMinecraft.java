@@ -9,6 +9,7 @@ import java.io.IOException;
 
 public class SlackMinecraft extends JavaPlugin{
     private SlackBot slackBot;
+    private PlayerListener playerListener;
     private boolean slackEnabled = false;
 
     @Override
@@ -40,6 +41,7 @@ public class SlackMinecraft extends JavaPlugin{
         }
 
         registerListeners();
+        registerCommands();
     }
 
     @Override
@@ -56,6 +58,13 @@ public class SlackMinecraft extends JavaPlugin{
 
     private void registerListeners() {
         PluginManager pm = Bukkit.getPluginManager();
-        pm.registerEvents(new PlayerListener(this, this.slackBot), this);
+        this.playerListener = new PlayerListener(this, this.slackBot);
+        pm.registerEvents(this.playerListener, this);
     }
+
+    private void registerCommands() {
+         IgnoreCommand ignoreCommand = new IgnoreCommand(this, this.playerListener);
+         this.getCommand("slackminecraft").setExecutor(ignoreCommand);
+         this.getCommand("slackminecraft").setTabCompleter(ignoreCommand);
+     }
 }
