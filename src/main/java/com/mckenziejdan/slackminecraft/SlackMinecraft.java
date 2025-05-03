@@ -8,14 +8,11 @@ import java.io.File;
 import java.io.IOException;
 
 public class SlackMinecraft extends JavaPlugin{
-    public static SlackBot slackBot;
-    public static SlackMinecraft instance;
+    private SlackBot slackBot;
     private boolean slackEnabled = false;
 
     @Override
     public void onEnable(){
-        instance = this;
-
         final File configFile = new File(this.getDataFolder() + "/config.yml");
         if(!configFile.exists()){
             this.saveDefaultConfig();
@@ -37,7 +34,7 @@ public class SlackMinecraft extends JavaPlugin{
                  getLogger().severe("Slack Bot Token, App Token, or Channel Name is missing in config.yml! Disabling Slack integration.");
                  slackEnabled = false;
             } else {
-                 slackBot = new SlackBot(botToken, appToken, channelName);
+                 this.slackBot = new SlackBot(this, botToken, appToken, channelName);
                  slackEnabled = true;
             }
         }
@@ -55,12 +52,10 @@ public class SlackMinecraft extends JavaPlugin{
                 e.printStackTrace();
             }
         }
-        slackBot = null;
-        instance = null;
     }
 
     private void registerListeners() {
         PluginManager pm = Bukkit.getPluginManager();
-        pm.registerEvents(new PlayerListener(slackBot), this);
+        pm.registerEvents(new PlayerListener(this, this.slackBot), this);
     }
 }

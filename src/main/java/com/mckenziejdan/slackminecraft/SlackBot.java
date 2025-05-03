@@ -28,7 +28,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class SlackBot {
-    private final SlackMinecraft instance;
+    private final SlackMinecraft plugin;
     private final Boolean debug;
     private final App boltApp;
     private final MethodsClient apiClient; // Keep using MethodsClient for sending
@@ -42,9 +42,9 @@ public class SlackBot {
     private final Map<String, User> userNameMap = new ConcurrentHashMap<>(); // Stores lowercase name -> User
     private volatile boolean userCachePopulated = false;
 
-    public SlackBot(String botToken, String appToken, String channelName) {
-        instance = SlackMinecraft.instance;
-        debug = instance.getConfig().getBoolean(ConfigConstants.SLACK_DEBUG);
+    public SlackBot(SlackMinecraft plugin, String botToken, String appToken, String channelName) {
+        this.plugin = plugin;
+        debug = plugin.getConfig().getBoolean(ConfigConstants.SLACK_DEBUG);
         // Use a scheduled executor for periodic tasks + general tasks
         scheduledExecutorService = Executors.newScheduledThreadPool(2); 
         executorService = scheduledExecutorService; // Can use the same executor
@@ -58,7 +58,7 @@ public class SlackBot {
         try {
             this.socketModeApp = new SocketModeApp(appToken, this.boltApp);
         } catch (Exception e) {
-            instance.getLogger().severe("Failed to initialize Socket Mode App: " + e.getMessage());
+            plugin.getLogger().severe("Failed to initialize Socket Mode App: " + e.getMessage());
             e.printStackTrace();
             // Handle initialization failure (e.g., prevent plugin enable)
             return;
@@ -79,23 +79,23 @@ public class SlackBot {
                     boolean connected = false;
                     for (int attempt = 1; attempt <= maxRetries; attempt++) {
                         try {
-                            instance.getLogger().info("Attempting to connect to Slack Socket Mode (Attempt " + attempt + "/" + maxRetries + ")...");
+                            plugin.getLogger().info("Attempting to connect to Slack Socket Mode (Attempt " + attempt + "/" + maxRetries + ")...");
                             socketModeApp.start(); // Start Socket Mode connection
-                            instance.getLogger().info("Successfully connected to Slack Socket Mode.");
+                            plugin.getLogger().info("Successfully connected to Slack Socket Mode.");
                             connected = true;
                             break; // Exit loop on successful connection
                         } catch (Exception startException) {
-                            instance.getLogger().warning("Failed to start Slack Socket Mode connection (Attempt " + attempt + "): " + startException.getMessage());
+                            plugin.getLogger().warning("Failed to start Slack Socket Mode connection (Attempt " + attempt + "): " + startException.getMessage());
                             if (attempt < maxRetries) {
                                 try {
                                     TimeUnit.SECONDS.sleep(retryDelaySeconds);
                                 } catch (InterruptedException ie) {
                                     Thread.currentThread().interrupt();
-                                    instance.getLogger().warning("Connection retry delay interrupted.");
+                                    plugin.getLogger().warning("Connection retry delay interrupted.");
                                     break; // Stop retrying if interrupted
                                 }
                             } else {
-                                instance.getLogger().severe("Failed to connect to Slack Socket Mode after " + maxRetries + " attempts.");
+                                plugin.getLogger().severe("Failed to connect to Slack Socket Mode after " + maxRetries + " attempts.");
                                 startException.printStackTrace(); // Log full trace on final failure
                             }
                         }
@@ -103,22 +103,22 @@ public class SlackBot {
 
                     if (connected) {
                         // Send connected message *after* connection is established
-                        sendMessage(instance.getConfig().getString(ConfigConstants.I18N_CONNECTED), null, null);
+                        sendMessage(plugin.getConfig().getString(ConfigConstants.I18N_CONNECTED), null, null);
 
                         // Schedule periodic user cache refresh (e.g., every hour)
-                        long refreshInterval = instance.getConfig().getLong(ConfigConstants.SLACK_CACHE_REFRESH_MINUTES, 60);
+                        long refreshInterval = plugin.getConfig().getLong(ConfigConstants.SLACK_CACHE_REFRESH_MINUTES, 60);
                         if (refreshInterval > 0) { // Allow disabling refresh with 0 or negative value
                              scheduledExecutorService.scheduleAtFixedRate(this::refreshUserCache, refreshInterval, refreshInterval, TimeUnit.MINUTES);
                         }
                     } else {
-                        instance.getLogger().severe("Slack Bot initialization failed: Could not connect to Socket Mode.");
+                        plugin.getLogger().severe("Slack Bot initialization failed: Could not connect to Socket Mode.");
                         // Consider stopping the SocketModeApp resources if partially initialized? Probably handled by stop() later.
                     }
                 } else {
-                    instance.getLogger().severe("Slack Bot initialization failed: Could not find channel " + channelName);
+                    plugin.getLogger().severe("Slack Bot initialization failed: Could not find channel " + channelName);
                 }
             } catch (Exception e) { // Catch errors during findChannelId or initial refreshUserCache
-                instance.getLogger().severe("Failed during Slack Bot initial setup (Channel/Cache): " + e.getMessage());
+                plugin.getLogger().severe("Failed during Slack Bot initial setup (Channel/Cache): " + e.getMessage());
                 e.printStackTrace();
             }
         });
@@ -147,21 +147,21 @@ public class SlackBot {
                     String convertedMessage = convertSlackMentionsToUsernames(messageText);
                     
                     String broadcastMessage = String.format(
-                        instance.getConfig().getString(ConfigConstants.I18N_SLACK_TO_MINECRAFT_FORMAT, "[Slack] <%s> %s"), 
+                        plugin.getConfig().getString(ConfigConstants.I18N_SLACK_TO_MINECRAFT_FORMAT, "[Slack] <%s> %s"), 
                         senderName != null ? senderName : "UnknownUser", 
                         convertedMessage
                     );
 
                     // Run broadcast message on main thread
-                    Bukkit.getScheduler().runTask(instance, () -> {
+                    Bukkit.getScheduler().runTask(plugin, () -> {
                          Bukkit.broadcastMessage(ChatColor.translateAlternateColorCodes('&', broadcastMessage));
                      });
 
                     if (debug) {
-                        instance.getLogger().info("[Slack] [Debug] Received \"" + convertedMessage + "\" from Slack user " + senderName + " (" + userId + ")"); // Added User ID to debug log
+                        plugin.getLogger().info("[Slack] [Debug] Received \"" + convertedMessage + "\" from Slack user " + senderName + " (" + userId + ")"); // Added User ID to debug log
                     }
                  } catch (Exception e) {
-                      instance.getLogger().severe("Error processing incoming Slack message from user " + userId + ": " + e.getMessage()); // Added User ID to error log
+                      plugin.getLogger().severe("Error processing incoming Slack message from user " + userId + ": " + e.getMessage()); // Added User ID to error log
                       e.printStackTrace();
                  }
              });
@@ -178,7 +178,7 @@ public class SlackBot {
         );
 
         if (!channelsResponse.isOk()) {
-             instance.getLogger().severe("Failed to list Slack channels: " + channelsResponse.getError());
+             plugin.getLogger().severe("Failed to list Slack channels: " + channelsResponse.getError());
              channelId = null;
              return;
         }
@@ -186,18 +186,18 @@ public class SlackBot {
         for (Conversation channel : channelsResponse.getChannels()) {
             if (channel.getName().equals(channelName)) {
                 channelId = channel.getId();
-                 instance.getLogger().info("Found Slack channel #" + channelName + " with ID: " + channelId);
+                 plugin.getLogger().info("Found Slack channel #" + channelName + " with ID: " + channelId);
                 break;
             }
         }
 
         if (channelId == null) {
-            instance.getLogger().severe("Could not find Slack channel: " + channelName);
+            plugin.getLogger().severe("Could not find Slack channel: " + channelName);
         }
     }
 
     private void refreshUserCache() {
-        instance.getLogger().info("Refreshing Slack user cache...");
+        plugin.getLogger().info("Refreshing Slack user cache...");
         Map<String, User> newUserIdMap = new ConcurrentHashMap<>();
         Map<String, User> newUserNameMap = new ConcurrentHashMap<>();
         String cursor = null;
@@ -210,7 +210,7 @@ public class SlackBot {
                 UsersListRequest request = UsersListRequest.builder().limit(200).cursor(cursor).build(); // Recommended limit is 200-1000
                 UsersListResponse response = apiClient.usersList(request);
                 if (!response.isOk()) {
-                    instance.getLogger().warning("Failed to fetch Slack user list (Page " + pageCount + "): " + response.getError());
+                    plugin.getLogger().warning("Failed to fetch Slack user list (Page " + pageCount + "): " + response.getError());
                     // Decide if we should abort or continue with partial cache
                     break; 
                 }
@@ -242,14 +242,14 @@ public class SlackBot {
             userNameMap.putAll(newUserNameMap);
             userCachePopulated = !userIdMap.isEmpty(); // Mark as populated if we got any users
 
-            instance.getLogger().info("Slack user cache refreshed. Found " + userIdMap.size() + " users.");
+            plugin.getLogger().info("Slack user cache refreshed. Found " + userIdMap.size() + " users.");
 
         } catch (IOException | SlackApiException e) {
-            instance.getLogger().severe("Error refreshing Slack user cache: " + e.getMessage());
+            plugin.getLogger().severe("Error refreshing Slack user cache: " + e.getMessage());
             e.printStackTrace();
             // Keep old cache if refresh fails?
         } catch (Exception e) {
-            instance.getLogger().severe("Unexpected error during user cache refresh: " + e.getMessage());
+            plugin.getLogger().severe("Unexpected error during user cache refresh: " + e.getMessage());
             e.printStackTrace();
         }
     }
@@ -266,7 +266,7 @@ public class SlackBot {
             return user.getName();
         }
         // Optionally: Trigger a cache refresh or log missing user? For now, fallback.
-        instance.getLogger().fine("Slack user ID not found in cache: " + userId);
+        plugin.getLogger().fine("Slack user ID not found in cache: " + userId);
         return userId; // Fallback to ID if not found
     }
 
@@ -277,12 +277,12 @@ public class SlackBot {
                 // Use API client directly to send the final message synchronously if needed
                  apiClient.chatPostMessage(req -> req
                      .channel(channelId)
-                     .text(instance.getConfig().getString(ConfigConstants.I18N_DISCONNECTED))
-                     .username(instance.getConfig().getString(ConfigConstants.I18N_BOT_NAME))
-                     .iconUrl(instance.getConfig().getString(ConfigConstants.SLACK_ICON))
+                     .text(plugin.getConfig().getString(ConfigConstants.I18N_DISCONNECTED))
+                     .username(plugin.getConfig().getString(ConfigConstants.I18N_BOT_NAME))
+                     .iconUrl(plugin.getConfig().getString(ConfigConstants.SLACK_ICON))
                  );
             } catch (IOException | SlackApiException e) {
-                instance.getLogger().warning("Failed to send disconnect message to Slack: " + e.getMessage());
+                plugin.getLogger().warning("Failed to send disconnect message to Slack: " + e.getMessage());
             }
         }
         
@@ -292,7 +292,7 @@ public class SlackBot {
                 socketModeApp.stop();
                 socketModeApp.close();
             } catch (Exception e) {
-                 instance.getLogger().severe("Error stopping Slack Socket Mode client: " + e.getMessage());
+                 plugin.getLogger().severe("Error stopping Slack Socket Mode client: " + e.getMessage());
                 e.printStackTrace();
             }
         }
@@ -318,7 +318,7 @@ public class SlackBot {
     public void sendMessage(final String messageText, final String username, final String icon) {
          // Don't send if channel ID wasn't found
          if (channelId == null) {
-             instance.getLogger().warning("Cannot send message to Slack, channel ID is not set.");
+             plugin.getLogger().warning("Cannot send message to Slack, channel ID is not set.");
              return;
          }
 
@@ -334,27 +334,27 @@ public class SlackBot {
                 if (username != null) {
                     requestBuilder.username(username);
                     // Use icon URL if provided, otherwise fallback to config (ensure config key exists)
-                    requestBuilder.iconUrl(icon != null ? icon : instance.getConfig().getString(ConfigConstants.SLACK_PLAYER_ICON_FALLBACK, null)); 
+                    requestBuilder.iconUrl(icon != null ? icon : plugin.getConfig().getString(ConfigConstants.SLACK_PLAYER_ICON_FALLBACK, null)); 
                 } else {
-                    requestBuilder.username(instance.getConfig().getString(ConfigConstants.I18N_BOT_NAME, "Minecraft Bot"));
-                    requestBuilder.iconUrl(instance.getConfig().getString(ConfigConstants.SLACK_ICON, null)); // Use configured bot icon
+                    requestBuilder.username(plugin.getConfig().getString(ConfigConstants.I18N_BOT_NAME, "Minecraft Bot"));
+                    requestBuilder.iconUrl(plugin.getConfig().getString(ConfigConstants.SLACK_ICON, null)); // Use configured bot icon
                 }
 
                 ChatPostMessageResponse response = apiClient.chatPostMessage(requestBuilder.build());
 
                  if (!response.isOk()) {
-                      instance.getLogger().warning("Failed to send message to Slack: " + response.getError());
+                      plugin.getLogger().warning("Failed to send message to Slack: " + response.getError());
                       if (response.getErrors() != null) {
-                           response.getErrors().forEach(err -> instance.getLogger().warning(" - " + err.toString()));
+                           response.getErrors().forEach(err -> plugin.getLogger().warning(" - " + err.toString()));
                       }
                  } else if (debug) {
-                    instance.getLogger().info("[Slack] [Debug] Sent \"" + formatMsg + "\" to Slack channel " + channelId);
+                    plugin.getLogger().info("[Slack] [Debug] Sent \"" + formatMsg + "\" to Slack channel " + channelId);
                 }
             } catch (IOException | SlackApiException e) {
-                 instance.getLogger().severe("Error sending message to Slack: " + e.getMessage());
+                 plugin.getLogger().severe("Error sending message to Slack: " + e.getMessage());
                 e.printStackTrace();
             } catch (Exception e) { // Catch unexpected errors
-                instance.getLogger().severe("Unexpected error sending Slack message: " + e.getMessage());
+                plugin.getLogger().severe("Unexpected error sending Slack message: " + e.getMessage());
                 e.printStackTrace();
             }
         });
@@ -363,7 +363,7 @@ public class SlackBot {
     // Renamed from convertMentions
     private String convertMinecraftMentionsToSlackTags(String message) {
         if (!userCachePopulated) { // Don't attempt conversion if cache isn't ready
-             instance.getLogger().fine("User cache not populated, skipping Minecraft mention conversion.");
+             plugin.getLogger().fine("User cache not populated, skipping Minecraft mention conversion.");
              return message;
          }
         final String regex = "@([\\w.]+)"; // Matches @ followed by word characters or dots
@@ -392,7 +392,7 @@ public class SlackBot {
     // Renamed from convertMentionsToUser
     private String convertSlackMentionsToUsernames(String message) {
         if (!userCachePopulated) { // Don't attempt conversion if cache isn't ready
-             instance.getLogger().fine("User cache not populated, skipping Slack mention conversion.");
+             plugin.getLogger().fine("User cache not populated, skipping Slack mention conversion.");
              return message;
          }
         final String regex = "<@([A-Z0-9]+)>"; // Slack user IDs are typically uppercase alphanumeric
