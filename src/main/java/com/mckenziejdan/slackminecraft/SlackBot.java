@@ -70,20 +70,55 @@ public class SlackBot {
         executorService.submit(() -> {
             try {
                 findChannelId(channelName); // Find channel ID first
-                // Populate user cache *after* apiClient is ready and channel is found (or attempt anyway)
-                refreshUserCache(); 
+                refreshUserCache(); // Populate user cache
+
                 if (channelId != null) {
-                    socketModeApp.start(); // Start Socket Mode connection
-                    // Schedule periodic user cache refresh (e.g., every hour)
-                    long refreshInterval = instance.getConfig().getLong("slack.cacheRefreshMinutes", 60);
-                    scheduledExecutorService.scheduleAtFixedRate(this::refreshUserCache, refreshInterval, refreshInterval, TimeUnit.MINUTES);
-                    // Send connected message *after* connection is likely established
-                     sendMessage(instance.getConfig().getString("i18n.connected"), null, null);
+                    // Attempt to start Socket Mode connection with retries
+                    int maxRetries = 3;
+                    int retryDelaySeconds = 5;
+                    boolean connected = false;
+                    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                        try {
+                            instance.getLogger().info("Attempting to connect to Slack Socket Mode (Attempt " + attempt + "/" + maxRetries + ")...");
+                            socketModeApp.start(); // Start Socket Mode connection
+                            instance.getLogger().info("Successfully connected to Slack Socket Mode.");
+                            connected = true;
+                            break; // Exit loop on successful connection
+                        } catch (Exception startException) {
+                            instance.getLogger().warning("Failed to start Slack Socket Mode connection (Attempt " + attempt + "): " + startException.getMessage());
+                            if (attempt < maxRetries) {
+                                try {
+                                    TimeUnit.SECONDS.sleep(retryDelaySeconds);
+                                } catch (InterruptedException ie) {
+                                    Thread.currentThread().interrupt();
+                                    instance.getLogger().warning("Connection retry delay interrupted.");
+                                    break; // Stop retrying if interrupted
+                                }
+                            } else {
+                                instance.getLogger().severe("Failed to connect to Slack Socket Mode after " + maxRetries + " attempts.");
+                                startException.printStackTrace(); // Log full trace on final failure
+                            }
+                        }
+                    }
+
+                    if (connected) {
+                        // Send connected message *after* connection is established
+                        sendMessage(instance.getConfig().getString("i18n.connected"), null, null);
+
+                        // Schedule periodic user cache refresh (e.g., every hour)
+                        long refreshInterval = instance.getConfig().getLong("slack.cacheRefreshMinutes", 60);
+                        if (refreshInterval > 0) { // Allow disabling refresh with 0 or negative value
+                             scheduledExecutorService.scheduleAtFixedRate(this::refreshUserCache, refreshInterval, refreshInterval, TimeUnit.MINUTES);
+                        }
+                    } else {
+                        instance.getLogger().severe("Slack Bot initialization failed: Could not connect to Socket Mode.");
+                        // Consider stopping the SocketModeApp resources if partially initialized? Probably handled by stop() later.
+                    }
                 } else {
-                     instance.getLogger().severe("Slack Bot initialization failed: Could not find channel " + channelName);
+                    instance.getLogger().severe("Slack Bot initialization failed: Could not find channel " + channelName);
                 }
-            } catch (Exception e) {
-                instance.getLogger().severe("Failed to start Slack Socket Mode connection or find channel: " + e.getMessage());
+            } catch (Exception e) { // Catch errors during findChannelId or initial refreshUserCache
+                instance.getLogger().severe("Failed during Slack Bot initial setup (Channel/Cache): " + e.getMessage());
                 e.printStackTrace();
             }
         });
@@ -93,6 +128,7 @@ public class SlackBot {
         // Listen for Message Events
         boltApp.event(MessageEvent.class, (payload, ctx) -> {
             MessageEvent event = payload.getEvent();
+            String userId = event.getUser(); // Get user ID early for logging
 
             // Ignore messages from bots, subtypes (edits, deletes), or wrong channel
             if (event.getSubtype() != null || event.getBotId() != null || !event.getChannel().equals(channelId)) {
@@ -122,10 +158,10 @@ public class SlackBot {
                      });
 
                     if (debug) {
-                        instance.getLogger().info("[Slack] [Debug] Received \"" + convertedMessage + "\" from Slack user " + senderName);
+                        instance.getLogger().info("[Slack] [Debug] Received \"" + convertedMessage + "\" from Slack user " + senderName + " (" + userId + ")"); // Added User ID to debug log
                     }
                  } catch (Exception e) {
-                      instance.getLogger().severe("Error processing incoming Slack message: " + e.getMessage());
+                      instance.getLogger().severe("Error processing incoming Slack message from user " + userId + ": " + e.getMessage()); // Added User ID to error log
                       e.printStackTrace();
                  }
              });
