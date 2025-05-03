@@ -16,8 +16,11 @@ import com.slack.api.model.User;
 import com.slack.api.model.event.MessageEvent;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
+import org.bukkit.entity.Player;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -140,31 +143,37 @@ public class SlackBot {
                 return ctx.ack();
             }
 
-            // Process message asynchronously
-             executorService.submit(() -> {
-                 try {
-                    String senderName = getSlackUserName(event.getUser()); // Get sender's name
-                    String convertedMessage = convertSlackMentionsToUsernames(messageText);
-                    
-                    String broadcastMessage = String.format(
-                        plugin.getConfig().getString(ConfigConstants.I18N_SLACK_TO_MINECRAFT_FORMAT, "[Slack] <%s> %s"), 
-                        senderName != null ? senderName : "UnknownUser", 
-                        convertedMessage
-                    );
+            // --- Command Handling --- 
+            if (messageText.trim().equalsIgnoreCase("!list")) {
+                handleListCommand(event, ctx);
+            } else if (messageText.trim().equalsIgnoreCase("!tps") || messageText.trim().equalsIgnoreCase("!status")) {
+                 handleStatusCommand(event, ctx);
+            // --- End Command Handling ---
+            } else {
+                // If not a command, process as a regular message to broadcast to Minecraft
+                executorService.submit(() -> {
+                    try {
+                        String senderName = getSlackUserName(event.getUser()); // Get sender's name
+                        String convertedMessage = convertSlackMentionsToUsernames(messageText);
+                        
+                        String broadcastMessage = String.format(
+                            plugin.getConfig().getString(ConfigConstants.I18N_SLACK_TO_MINECRAFT_FORMAT, "[Slack] <%s> %s"), 
+                            senderName != null ? senderName : "UnknownUser", 
+                            convertedMessage
+                        );
 
-                    // Run broadcast message on main thread
-                    Bukkit.getScheduler().runTask(plugin, () -> {
-                         Bukkit.broadcastMessage(ChatColor.translateAlternateColorCodes('&', broadcastMessage));
-                     });
+                        // Run broadcast message on main thread
+                        Bukkit.broadcastMessage(ChatColor.translateAlternateColorCodes('&', broadcastMessage));
 
-                    if (debug) {
-                        plugin.getLogger().info("[Slack] [Debug] Received \"" + convertedMessage + "\" from Slack user " + senderName + " (" + userId + ")"); // Added User ID to debug log
+                        if (debug) {
+                            plugin.getLogger().info("[Slack] [Debug] Received \"" + convertedMessage + "\" from Slack user " + senderName + " (" + userId + ")"); // Added User ID to debug log
+                        }
+                    } catch (Exception e) {
+                         plugin.getLogger().severe("Error processing incoming Slack message from user " + userId + ": " + e.getMessage()); // Added User ID to error log
+                         e.printStackTrace();
                     }
-                 } catch (Exception e) {
-                      plugin.getLogger().severe("Error processing incoming Slack message from user " + userId + ": " + e.getMessage()); // Added User ID to error log
-                      e.printStackTrace();
-                 }
-             });
+                });
+            }
 
             return ctx.ack(); // Acknowledge the event
         });
@@ -418,4 +427,64 @@ public class SlackBot {
     }
     
     // Unused method removed: parseMentions
+
+    // --- Command Handler Methods ---
+
+    private void handleListCommand(MessageEvent event, com.slack.api.bolt.context.builtin.EventContext ctx) {
+        // Getting online players is generally thread-safe as it returns a snapshot
+        Collection<? extends Player> onlinePlayers = Bukkit.getOnlinePlayers();
+        int playerCount = onlinePlayers.size();
+        String playerListString;
+
+        if (playerCount == 0) {
+            playerListString = "No players online.";
+        } else {
+            String[] playerNames = onlinePlayers.stream()
+                                                .map(Player::getName) // Or getDisplayName()
+                                                .toArray(String[]::new);
+            playerListString = "Online players (" + playerCount + "): " + String.join(", ", playerNames);
+        }
+
+        // Send the response back to the originating channel
+        try {
+            // Use ctx.say() for convenience - it uses the underlying client
+            ctx.say(playerListString);
+            if (debug) {
+                 plugin.getLogger().info("[Slack] Handled !list command from user " + event.getUser());
+            }
+        } catch (IOException | SlackApiException e) {
+            plugin.getLogger().severe("Failed to send !list response to Slack: " + e.getMessage());
+        }
+    }
+
+    private void handleStatusCommand(MessageEvent event, com.slack.api.bolt.context.builtin.EventContext ctx) {
+        // Bukkit.getTPS() is thread-safe
+        double[] tps = Bukkit.getTPS(); // Returns array: [1m, 5m, 15m]
+        String tpsString = String.format("TPS (1m, 5m, 15m): %.2f, %.2f, %.2f", tps[0], tps[1], tps[2]);
+
+        // Get memory usage (rough estimate)
+        Runtime runtime = Runtime.getRuntime();
+        long maxMemory = runtime.maxMemory() / 1024 / 1024; // MB
+        long allocatedMemory = runtime.totalMemory() / 1024 / 1024; // MB
+        long freeMemory = runtime.freeMemory() / 1024 / 1024; // MB
+        long usedMemory = allocatedMemory - freeMemory;
+        String memoryString = String.format("Memory: %d MB / %d MB (Max: %d MB)", usedMemory, allocatedMemory, maxMemory);
+
+        int playerCount = Bukkit.getOnlinePlayers().size();
+        String playersString = "Online Players: " + playerCount;
+
+        String statusMessage = "Server Status:\n" + tpsString + "\n" + playersString + "\n" + memoryString;
+
+        // Send the response back
+        try {
+            ctx.say(statusMessage);
+             if (debug) {
+                 plugin.getLogger().info("[Slack] Handled !tps/!status command from user " + event.getUser());
+            }
+        } catch (IOException | SlackApiException e) {
+            plugin.getLogger().severe("Failed to send !status response to Slack: " + e.getMessage());
+        }
+    }
+
+    // --- End Command Handler Methods ---
 }
