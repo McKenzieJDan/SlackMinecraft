@@ -3,9 +3,11 @@
 slack:
   enabled: true
   token: ""
-  channel: ""
-  icon: "https://logo.clearbit.com/minecraft.net"
+  app-token: ""
+  channel: "general"
+  icon: "https://www.minecraft.net/favicon.ico"
   debug: false
+  cacheRefreshMinutes: 60
 
 i18n:
   botName: "Minecraft"
@@ -18,4 +20,4 @@ i18n:
   commandExecuted: ":warning: Executed command: "
 
 options:
-  echoCommands: false
+  echoCommands: true

@@ -28,8 +28,17 @@ public class SlackMinecraft extends JavaPlugin{
         }
 
         if(getConfig().getBoolean("slack.enabled")) {
-            slackBot = new SlackBot(getConfig().getString("slack.token"), getConfig().getString("slack.channel"));
-            slackEnabled = true;
+            String botToken = getConfig().getString("slack.token");
+            String appToken = getConfig().getString("slack.app-token");
+            String channelName = getConfig().getString("slack.channel");
+            
+            if (botToken == null || botToken.isEmpty() || appToken == null || appToken.isEmpty() || channelName == null || channelName.isEmpty()) {
+                 getLogger().severe("Slack Bot Token, App Token, or Channel Name is missing in config.yml! Disabling Slack integration.");
+                 slackEnabled = false;
+            } else {
+                 slackBot = new SlackBot(botToken, appToken, channelName);
+                 slackEnabled = true;
+            }
         }
 
         registerListeners();
@@ -37,9 +46,8 @@ public class SlackMinecraft extends JavaPlugin{
 
     @Override
     public void onDisable(){
-        if(slackEnabled){
+        if(slackEnabled && slackBot != null){
             try {
-                slackBot.sendMessage(getConfig().getString("i18n.disconnected"), null, null);
                 slackBot.stop();
             } catch (Exception e) {
                 getLogger().severe("Error stopping Slack bot: " + e.getMessage());
