@@ -94,6 +94,10 @@ options:
 *   Spigot/Paper 1.21.5+
 *   Java 17+
 
+## Used By
+
+[SuegoFaults](https://suegofaults.com) - A curated adult Minecraft community where this plugin powers Slack chat and events integration.
+
 ## Support
 
 If you find this plugin helpful, consider [buying me a coffee](https://www.paypal.com/paypalme/mckenzio) ☕
