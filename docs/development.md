@@ -78,6 +78,8 @@ mise run release -- 2.0.0 --draft
 
 Use `--notes-file path/to/notes.md` to supply a different Markdown file. See [the 2.0.0 notes](releases/2.0.0.md) for the initial release text.
 
+Write release notes for server owners. Start with a short description, then use `What changed`, `Installation and updating` and `Requirements` sections. Describe player-visible and administrator-visible changes. Give the exact JAR filename and configuration steps for that version. Keep each version’s original requirements. Keep testing details in the development and architecture documentation. Store each release's notes in `docs/releases/<version>.md` and keep the GitHub release body in sync.
+
 The command stops on uncommitted changes, an unpushed commit, an existing remote tag or a failed build. A dry run can use uncommitted changes. Existing releases are never overwritten. If an upload fails after GitHub creates a draft, inspect that draft on GitHub before retrying; do not delete a published release to reuse its version.
 
 This command does not upload to Spigot. Perform the [live server checks](shaping/chat-bridge.md#acceptance-checks) before describing a release as tested on a running server.
