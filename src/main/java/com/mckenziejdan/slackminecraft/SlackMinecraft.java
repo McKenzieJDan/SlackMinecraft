@@ -31,17 +31,18 @@ public class SlackMinecraft extends JavaPlugin{
             String appToken = getConfig().getString(ConfigConstants.SLACK_APP_TOKEN);
             String channelName = getConfig().getString(ConfigConstants.SLACK_CHANNEL);
             
-            if (botToken == null || botToken.isEmpty() || appToken == null || appToken.isEmpty() || channelName == null || channelName.isEmpty()) {
-                 getLogger().severe("Slack Bot Token, App Token, or Channel Name is missing in config.yml! Disabling Slack integration.");
+            if (botToken == null || !botToken.trim().startsWith("xoxb-") || appToken == null || !appToken.trim().startsWith("xapp-") || channelName == null || channelName.isBlank()) {
+                 getLogger().severe("Slack Bot Token (xoxb-), App Token (xapp-), or Channel is missing or invalid in config.yml! Disabling Slack integration.");
                  slackEnabled = false;
             } else {
-                 this.slackBot = new SlackBot(this, botToken, appToken, channelName);
+                 this.slackBot = new SlackBot(this, botToken.trim(), appToken.trim(), channelName.trim());
                  slackEnabled = true;
             }
         }
 
         registerListeners();
         registerCommands();
+        if (slackEnabled) slackBot.start();
     }
 
     @Override
@@ -64,7 +65,8 @@ public class SlackMinecraft extends JavaPlugin{
 
     private void registerCommands() {
          IgnoreCommand ignoreCommand = new IgnoreCommand(this, this.playerListener);
-         this.getCommand("slackminecraft").setExecutor(ignoreCommand);
-         this.getCommand("slackminecraft").setTabCompleter(ignoreCommand);
+         var command = java.util.Objects.requireNonNull(getCommand("slackminecraft"), "Missing command in plugin.yml");
+         command.setExecutor(ignoreCommand);
+         command.setTabCompleter(ignoreCommand);
      }
 }

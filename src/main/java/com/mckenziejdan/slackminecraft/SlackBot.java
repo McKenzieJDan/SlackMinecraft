@@ -1,490 +1,292 @@
 package com.mckenziejdan.slackminecraft;
 
+import com.slack.api.Slack;
+import com.slack.api.SlackConfig;
 import com.slack.api.bolt.App;
 import com.slack.api.bolt.AppConfig;
 import com.slack.api.bolt.socket_mode.SocketModeApp;
 import com.slack.api.methods.MethodsClient;
 import com.slack.api.methods.SlackApiException;
 import com.slack.api.methods.request.chat.ChatPostMessageRequest;
-import com.slack.api.methods.request.conversations.ConversationsListRequest;
-import com.slack.api.methods.request.users.UsersListRequest;
-import com.slack.api.methods.response.chat.ChatPostMessageResponse;
-import com.slack.api.methods.response.conversations.ConversationsListResponse;
-import com.slack.api.methods.response.users.UsersListResponse;
-import com.slack.api.model.Conversation;
-import com.slack.api.model.User;
 import com.slack.api.model.event.MessageEvent;
-import org.bukkit.Bukkit;
+import com.slack.api.socket_mode.SocketModeClient;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.IllegalFormatException;
+import java.util.Locale;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class SlackBot {
+    private record Outgoing(String text, String username, String icon) {}
+
     private final SlackMinecraft plugin;
-    private final Boolean debug;
-    private final App boltApp;
-    private final MethodsClient apiClient; // Keep using MethodsClient for sending
-    private SocketModeApp socketModeApp;
-    private String channelId;
-    private final ExecutorService executorService;
-    private ScheduledExecutorService scheduledExecutorService; // Added for periodic refresh
+    private final SlackDirectory directory = new SlackDirectory();
+    private final ArrayBlockingQueue<Outgoing> outgoing = new ArrayBlockingQueue<>(256);
+    private final AtomicBoolean stopping = new AtomicBoolean();
+    private final AtomicLong lastQueueWarning = new AtomicLong();
+    private final String botToken;
+    private final String appToken;
+    private final String channel;
+    private final String botName;
+    private final String botIcon;
+    private final String playerIconFallback;
+    private final String connectedMessage;
+    private final String disconnectedMessage;
+    private final String incomingFormat;
+    private final long refreshMinutes;
+    private final boolean debug;
+    private final Thread worker;
+    private volatile String channelId;
+    private volatile boolean connected;
+    // Network resources are owned and closed by the worker, including during startup failure.
+    private Slack slack;
+    private SocketModeApp socket;
+    private MethodsClient api;
+    private long nextSendNanos;
 
-    // Cache fields
-    private final Map<String, User> userIdMap = new ConcurrentHashMap<>();
-    private final Map<String, User> userNameMap = new ConcurrentHashMap<>(); // Stores lowercase name -> User
-    private volatile boolean userCachePopulated = false;
-
-    public SlackBot(SlackMinecraft plugin, String botToken, String appToken, String channelName) {
+    public SlackBot(SlackMinecraft plugin, String botToken, String appToken, String channel) {
         this.plugin = plugin;
-        debug = plugin.getConfig().getBoolean(ConfigConstants.SLACK_DEBUG);
-        // Use a scheduled executor for periodic tasks + general tasks
-        scheduledExecutorService = Executors.newScheduledThreadPool(2); 
-        executorService = scheduledExecutorService; // Can use the same executor
-
-        // Configure Bolt App
-        AppConfig appConfig = AppConfig.builder().singleTeamBotToken(botToken).build();
-        this.boltApp = new App(appConfig);
-        this.apiClient = boltApp.client(); // Get MethodsClient from Bolt App
-
-        // Initialize Socket Mode (will connect later)
-        try {
-            this.socketModeApp = new SocketModeApp(appToken, this.boltApp);
-        } catch (Exception e) {
-            plugin.getLogger().severe("Failed to initialize Socket Mode App: " + e.getMessage());
-            e.printStackTrace();
-            // Handle initialization failure (e.g., prevent plugin enable)
-            return;
-        }
-
-        registerEventHandlers();
-
-        // Perform initial setup (find channel ID, connect) in background
-        executorService.submit(() -> {
-            try {
-                findChannelId(channelName); // Find channel ID first
-                refreshUserCache(); // Populate user cache
-
-                if (channelId != null) {
-                    // Attempt to start Socket Mode connection with retries
-                    int maxRetries = 3;
-                    int retryDelaySeconds = 5;
-                    boolean connected = false;
-                    for (int attempt = 1; attempt <= maxRetries; attempt++) {
-                        try {
-                            plugin.getLogger().info("Attempting to connect to Slack Socket Mode (Attempt " + attempt + "/" + maxRetries + ")...");
-                            socketModeApp.start(); // Start Socket Mode connection
-                            plugin.getLogger().info("Successfully connected to Slack Socket Mode.");
-                            connected = true;
-                            break; // Exit loop on successful connection
-                        } catch (Exception startException) {
-                            plugin.getLogger().warning("Failed to start Slack Socket Mode connection (Attempt " + attempt + "): " + startException.getMessage());
-                            if (attempt < maxRetries) {
-                                try {
-                                    TimeUnit.SECONDS.sleep(retryDelaySeconds);
-                                } catch (InterruptedException ie) {
-                                    Thread.currentThread().interrupt();
-                                    plugin.getLogger().warning("Connection retry delay interrupted.");
-                                    break; // Stop retrying if interrupted
-                                }
-                            } else {
-                                plugin.getLogger().severe("Failed to connect to Slack Socket Mode after " + maxRetries + " attempts.");
-                                startException.printStackTrace(); // Log full trace on final failure
-                            }
-                        }
-                    }
-
-                    if (connected) {
-                        // Send connected message *after* connection is established
-                        sendMessage(plugin.getConfig().getString(ConfigConstants.I18N_CONNECTED), null, null);
-
-                        // Schedule periodic user cache refresh (e.g., every hour)
-                        long refreshInterval = plugin.getConfig().getLong(ConfigConstants.SLACK_CACHE_REFRESH_MINUTES, 60);
-                        if (refreshInterval > 0) { // Allow disabling refresh with 0 or negative value
-                             scheduledExecutorService.scheduleAtFixedRate(this::refreshUserCache, refreshInterval, refreshInterval, TimeUnit.MINUTES);
-                        }
-                    } else {
-                        plugin.getLogger().severe("Slack Bot initialization failed: Could not connect to Socket Mode.");
-                        // Consider stopping the SocketModeApp resources if partially initialized? Probably handled by stop() later.
-                    }
-                } else {
-                    plugin.getLogger().severe("Slack Bot initialization failed: Could not find channel " + channelName);
-                }
-            } catch (Exception e) { // Catch errors during findChannelId or initial refreshUserCache
-                plugin.getLogger().severe("Failed during Slack Bot initial setup (Channel/Cache): " + e.getMessage());
-                e.printStackTrace();
-            }
-        });
+        this.botToken = botToken;
+        this.appToken = appToken;
+        this.channel = channel;
+        var config = plugin.getConfig();
+        botName = config.getString(ConfigConstants.I18N_BOT_NAME, "Minecraft");
+        botIcon = config.getString(ConfigConstants.SLACK_ICON, "");
+        playerIconFallback = config.getString(ConfigConstants.SLACK_PLAYER_ICON_FALLBACK, "");
+        connectedMessage = config.getString(ConfigConstants.I18N_CONNECTED, ":white_check_mark: Online");
+        disconnectedMessage = config.getString(ConfigConstants.I18N_DISCONNECTED, ":x: Offline");
+        incomingFormat = validateFormat(config.getString(ConfigConstants.I18N_SLACK_TO_MINECRAFT_FORMAT, "[Slack] <%s> %s"));
+        refreshMinutes = config.getLong(ConfigConstants.SLACK_CACHE_REFRESH_MINUTES, 60);
+        debug = config.getBoolean(ConfigConstants.SLACK_DEBUG);
+        worker = new Thread(this::run, "SlackMinecraft-relay");
+        worker.setDaemon(true);
     }
 
-    private void registerEventHandlers() {
-        // Listen for Message Events
-        boltApp.event(MessageEvent.class, (payload, ctx) -> {
-            MessageEvent event = payload.getEvent();
-            String userId = event.getUser(); // Get user ID early for logging
+    public void start() {
+        worker.start();
+    }
 
-            // Ignore messages from bots, subtypes (edits, deletes), or wrong channel
-            if (event.getSubtype() != null || event.getBotId() != null || !event.getChannel().equals(channelId)) {
-                return ctx.ack(); // Acknowledge event even if ignored
-            }
+    private String validateFormat(String format) {
+        try {
+            String.format(format, "player", "message");
+            return format;
+        } catch (IllegalFormatException e) {
+            plugin.getLogger().warning("Invalid i18n.slackToMinecraftFormat; using [Slack] <%s> %s.");
+            return "[Slack] <%s> %s";
+        }
+    }
 
-            String messageText = event.getText();
-            if (messageText == null) {
+    private void run() {
+        try {
+            SlackConfig config = new SlackConfig();
+            config.setHttpClientCallTimeoutMillis(5000);
+            config.setHttpClientReadTimeoutMillis(5000);
+            config.setStatsEnabled(false);
+            slack = Slack.getInstance(config);
+            api = slack.methods(botToken);
+            channelId = directory.findChannel(api, channel);
+            if (stopping.get()) return;
+            refreshUsers();
+            if (stopping.get()) return;
+            App app = new App(AppConfig.builder().slack(slack).singleTeamBotToken(botToken).build());
+            app.event(MessageEvent.class, (payload, ctx) -> {
+                handleIncoming(payload.getEvent());
                 return ctx.ack();
-            }
-
-            // --- Command Handling --- 
-            if (messageText.trim().equalsIgnoreCase("!list")) {
-                handleListCommand(event, ctx);
-            } else if (messageText.trim().equalsIgnoreCase("!tps") || messageText.trim().equalsIgnoreCase("!status")) {
-                 handleStatusCommand(event, ctx);
-            // --- End Command Handling ---
-            } else {
-                // If not a command, process as a regular message to broadcast to Minecraft
-                executorService.submit(() -> {
-                    try {
-                        String senderName = getSlackUserName(event.getUser()); // Get sender's name
-                        String convertedMessage = convertSlackMentionsToUsernames(messageText);
-                        
-                        String broadcastMessage = String.format(
-                            plugin.getConfig().getString(ConfigConstants.I18N_SLACK_TO_MINECRAFT_FORMAT, "[Slack] <%s> %s"), 
-                            senderName != null ? senderName : "UnknownUser", 
-                            convertedMessage
-                        );
-
-                        // Run broadcast message on main thread
-                        Bukkit.broadcastMessage(ChatColor.translateAlternateColorCodes('&', broadcastMessage));
-
-                        if (debug) {
-                            plugin.getLogger().info("[Slack] [Debug] Received \"" + convertedMessage + "\" from Slack user " + senderName + " (" + userId + ")"); // Added User ID to debug log
-                        }
-                    } catch (Exception e) {
-                         plugin.getLogger().severe("Error processing incoming Slack message from user " + userId + ": " + e.getMessage()); // Added User ID to error log
-                         e.printStackTrace();
-                    }
-                });
-            }
-
-            return ctx.ack(); // Acknowledge the event
-        });
-    }
-    
-    private void findChannelId(String channelName) throws IOException, SlackApiException {
-        // Find channel ID from channel name
-        // TODO: Implement pagination for large channel lists if necessary
-        ConversationsListResponse channelsResponse = apiClient.conversationsList(
-                ConversationsListRequest.builder().limit(1000).build() // Increase limit if needed
-        );
-
-        if (!channelsResponse.isOk()) {
-             plugin.getLogger().severe("Failed to list Slack channels: " + channelsResponse.getError());
-             channelId = null;
-             return;
-        }
-
-        for (Conversation channel : channelsResponse.getChannels()) {
-            if (channel.getName().equals(channelName)) {
-                channelId = channel.getId();
-                 plugin.getLogger().info("Found Slack channel #" + channelName + " with ID: " + channelId);
-                break;
-            }
-        }
-
-        if (channelId == null) {
-            plugin.getLogger().severe("Could not find Slack channel: " + channelName);
-        }
-    }
-
-    private void refreshUserCache() {
-        plugin.getLogger().info("Refreshing Slack user cache...");
-        Map<String, User> newUserIdMap = new ConcurrentHashMap<>();
-        Map<String, User> newUserNameMap = new ConcurrentHashMap<>();
-        String cursor = null;
-        int fetchedCount = 0;
-        int pageCount = 0;
-
-        try {
-            do {
-                pageCount++;
-                UsersListRequest request = UsersListRequest.builder().limit(200).cursor(cursor).build(); // Recommended limit is 200-1000
-                UsersListResponse response = apiClient.usersList(request);
-                if (!response.isOk()) {
-                    plugin.getLogger().warning("Failed to fetch Slack user list (Page " + pageCount + "): " + response.getError());
-                    // Decide if we should abort or continue with partial cache
-                    break; 
+            });
+            socket = new SocketModeApp(appToken, app, SocketModeClient.Backend.JavaWebSocket);
+            for (int attempt = 1; !stopping.get(); attempt++) {
+                try {
+                    socket.startAsync();
+                    break;
+                } catch (Exception e) {
+                    if (attempt == 3) throw e;
+                    plugin.getLogger().warning("Slack connection failed; retrying in five seconds.");
+                    TimeUnit.SECONDS.sleep(5);
                 }
-
-                for (User user : response.getMembers()) {
-                    // Skip bots and null users/IDs
-                    if (user == null || user.isBot() || user.isDeleted() || user.getId() == null) continue;
-                    
-                    fetchedCount++;
-                    newUserIdMap.put(user.getId(), user);
-                    if (user.getName() != null) {
-                         newUserNameMap.put(user.getName().toLowerCase(), user);
-                    }
-                     // Also cache by display name if available and different
-                    if (user.getProfile() != null && 
-                        user.getProfile().getDisplayName() != null && 
-                        !user.getProfile().getDisplayName().isEmpty() && 
-                        !user.getProfile().getDisplayName().equalsIgnoreCase(user.getName())) {
-                            newUserNameMap.put(user.getProfile().getDisplayName().toLowerCase(), user);
-                        }
+            }
+            if (stopping.get()) return;
+            connected = true;
+            plugin.getLogger().info("Connected to Slack Socket Mode.");
+            post(new Outgoing(connectedMessage, null, null));
+            long nextRefresh = System.nanoTime() + TimeUnit.MINUTES.toNanos(Math.max(1, refreshMinutes));
+            while (!stopping.get()) {
+                Outgoing message = outgoing.poll(1, TimeUnit.SECONDS);
+                if (message != null) post(message);
+                if (refreshMinutes > 0 && System.nanoTime() >= nextRefresh) {
+                    refreshUsers();
+                    nextRefresh = System.nanoTime() + TimeUnit.MINUTES.toNanos(refreshMinutes);
                 }
-                cursor = response.getResponseMetadata() != null ? response.getResponseMetadata().getNextCursor() : null;
-            } while (cursor != null && !cursor.isEmpty());
-
-            // Atomically replace the old maps with the new ones
-            userIdMap.clear();
-            userIdMap.putAll(newUserIdMap);
-            userNameMap.clear();
-            userNameMap.putAll(newUserNameMap);
-            userCachePopulated = !userIdMap.isEmpty(); // Mark as populated if we got any users
-
-            plugin.getLogger().info("Slack user cache refreshed. Found " + userIdMap.size() + " users.");
-
-        } catch (IOException | SlackApiException e) {
-            plugin.getLogger().severe("Error refreshing Slack user cache: " + e.getMessage());
-            e.printStackTrace();
-            // Keep old cache if refresh fails?
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            plugin.getLogger().severe("Unexpected error during user cache refresh: " + e.getMessage());
-            e.printStackTrace();
+            // Exception bodies can contain HTTP tokens or private message content.
+            plugin.getLogger().severe("Slack relay stopped (" + e.getClass().getSimpleName()
+                    + "). Check tokens, channel membership, scopes and network access, then restart.");
+        } finally {
+            stopping.set(true);
+            outgoing.clear();
+            nextSendNanos = 0; // Shutdown must not wait out a long rate-limit delay.
+            Thread.interrupted(); // Allow bounded network cleanup after an interrupted queue wait.
+            try {
+                if (connected && api != null && !disconnectedMessage.isBlank()) {
+                    post(new Outgoing(disconnectedMessage, null, null));
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                connected = false;
+                closeResources();
+            }
         }
     }
 
-    // Method to get user name from ID using cache
-    private String getSlackUserName(String userId) {
-        if (userId == null) return null;
-        User user = userIdMap.get(userId);
-        if (user != null) {
-             // Prefer display name, fallback to name
-             if (user.getProfile() != null && user.getProfile().getDisplayName() != null && !user.getProfile().getDisplayName().isEmpty()) {
-                 return user.getProfile().getDisplayName();
-             }
-            return user.getName();
+    private void refreshUsers() {
+        try {
+            directory.refresh(api);
+        } catch (IOException | SlackApiException e) {
+            plugin.getLogger().warning("Could not refresh Slack users; keeping the previous cache. Check users:read and Slack availability.");
         }
-        // Optionally: Trigger a cache refresh or log missing user? For now, fallback.
-        plugin.getLogger().fine("Slack user ID not found in cache: " + userId);
-        return userId; // Fallback to ID if not found
+    }
+
+    void handleIncoming(MessageEvent event) {
+        if (stopping.get() || !connected || event == null || event.getSubtype() != null
+                || event.getBotId() != null || event.getUser() == null || event.getText() == null
+                || !channelId.equals(event.getChannel())) return;
+        String message = event.getText();
+        // Queue only Minecraft work here: the Socket Mode callback must acknowledge promptly.
+        try {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (stopping.get()) return;
+                switch (message.trim().toLowerCase(Locale.ROOT)) {
+                    case "!list" -> {
+                        String names = String.join(", ", plugin.getServer().getOnlinePlayers().stream()
+                                .map(Player::getName).sorted().toList());
+                        sendMessage(names.isEmpty() ? "No players online." : "Online players: " + names, null, null);
+                    }
+                    case "!tps", "!status" -> sendMessage(serverStatus(), null, null);
+                    default -> {
+                        // Translate color codes only in the administrator-controlled format.
+                        String format = ChatColor.translateAlternateColorCodes('&', incomingFormat);
+                        String text = MessageFormatter.toMinecraft(message, directory::userName);
+                        plugin.getServer().broadcastMessage(String.format(format,
+                                ChatColor.stripColor(directory.userName(event.getUser())), ChatColor.stripColor(text)));
+                    }
+                }
+            });
+        } catch (org.bukkit.plugin.IllegalPluginAccessException ignored) {
+            // The server disabled the plugin while a Socket Mode callback was in flight.
+        }
+    }
+
+    private String serverStatus() {
+        String tps = "TPS: unavailable on this server";
+        try {
+            // Paper exposes getTPS(); Spigot does not. Keep the plugin loadable on both.
+            double[] values = (double[]) plugin.getServer().getClass().getMethod("getTPS").invoke(plugin.getServer());
+            if (values.length >= 3) tps = String.format(Locale.ROOT,
+                    "TPS (1m, 5m, 15m): %.2f, %.2f, %.2f", values[0], values[1], values[2]);
+        } catch (ReflectiveOperationException | ClassCastException ignored) {
+            // This is an optional Paper extension.
+        }
+        Runtime runtime = Runtime.getRuntime();
+        long used = (runtime.totalMemory() - runtime.freeMemory()) / 1024 / 1024;
+        return "Server status:\n" + tps + "\nOnline players: " + plugin.getServer().getOnlinePlayers().size()
+                + "\nMemory: " + used + " MB / " + runtime.maxMemory() / 1024 / 1024 + " MB maximum";
+    }
+
+    public void sendMessage(String text, String username, String icon) {
+        if (stopping.get() || text == null || text.isBlank()) return;
+        if (!outgoing.offer(new Outgoing(text, username, icon))) {
+            long now = System.nanoTime();
+            long previous = lastQueueWarning.get();
+            if ((previous == 0 || now - previous > TimeUnit.MINUTES.toNanos(1))
+                    && lastQueueWarning.compareAndSet(previous, now)) {
+                plugin.getLogger().warning("Slack queue is full (256 messages); dropping new messages until it recovers.");
+            }
+        }
+    }
+
+    private void post(Outgoing message) throws InterruptedException {
+        if (message.text() == null || message.text().isBlank()) return;
+        String text = MessageFormatter.toSlack(ChatColor.stripColor(message.text()), directory.userIds());
+        var request = ChatPostMessageRequest.builder().channel(channelId).text(text)
+                .username(ChatColor.stripColor(message.username() == null ? botName : message.username()))
+                .iconUrl(message.username() == null ? botIcon : message.icon() == null ? playerIconFallback : message.icon())
+                .unfurlLinks(false).unfurlMedia(false).build();
+        for (int attempt = 0; attempt < 3; attempt++) {
+            long delay = nextSendNanos - System.nanoTime();
+            if (delay > 0) TimeUnit.NANOSECONDS.sleep(delay);
+            try {
+                var response = api.chatPostMessage(request);
+                if (!response.isOk()) plugin.getLogger().warning("Slack rejected a message: " + response.getError());
+                else if (debug) plugin.getLogger().info("Delivered a message to the configured Slack channel.");
+                return;
+            } catch (SlackApiException e) {
+                if (e.getResponse().code() == 429 && attempt < 2 && !stopping.get()) {
+                    long seconds = retryAfterSeconds(e.getResponse().header("Retry-After"));
+                    if (seconds > 60) {
+                        plugin.getLogger().warning("Slack requested a long rate-limit delay; dropping this message.");
+                        nextSendNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+                        return;
+                    }
+                    TimeUnit.SECONDS.sleep(seconds);
+                } else {
+                    plugin.getLogger().warning("Slack HTTP error " + e.getResponse().code() + "; message was not retried.");
+                    return;
+                }
+            } catch (IOException e) {
+                plugin.getLogger().warning("Slack message delivery failed; not retrying an uncertain delivery.");
+                return;
+            } finally {
+                nextSendNanos = Math.max(nextSendNanos, System.nanoTime() + TimeUnit.SECONDS.toNanos(1));
+            }
+        }
+    }
+
+    static long retryAfterSeconds(String value) {
+        try {
+            return Math.max(1, Math.min(3600, Long.parseLong(value)));
+        } catch (NumberFormatException e) {
+            return 1;
+        }
     }
 
     public void stop() {
-        // Send disconnect message before stopping
-        if (channelId != null && socketModeApp != null) {
-            try {
-                // Use API client directly to send the final message synchronously if needed
-                 apiClient.chatPostMessage(req -> req
-                     .channel(channelId)
-                     .text(plugin.getConfig().getString(ConfigConstants.I18N_DISCONNECTED))
-                     .username(plugin.getConfig().getString(ConfigConstants.I18N_BOT_NAME))
-                     .iconUrl(plugin.getConfig().getString(ConfigConstants.SLACK_ICON))
-                 );
-            } catch (IOException | SlackApiException e) {
-                plugin.getLogger().warning("Failed to send disconnect message to Slack: " + e.getMessage());
-            }
-        }
-        
-        // Stop Socket Mode client
-        if (socketModeApp != null) {
-            try {
-                socketModeApp.stop();
-                socketModeApp.close();
-            } catch (Exception e) {
-                 plugin.getLogger().severe("Error stopping Slack Socket Mode client: " + e.getMessage());
-                e.printStackTrace();
-            }
-        }
-        // Shutdown executor service
-        executorService.shutdown();
-        scheduledExecutorService.shutdown(); // Shutdown scheduled executor too
+        stopping.set(true);
+        worker.interrupt();
         try {
-            if (!scheduledExecutorService.awaitTermination(5, TimeUnit.SECONDS)) {
-                scheduledExecutorService.shutdownNow();
-            }
-             if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
-                 executorService.shutdownNow();
-             }
+            worker.join(3000);
+            if (worker.isAlive()) plugin.getLogger().warning("Slack cleanup is still finishing in the background.");
         } catch (InterruptedException e) {
-            scheduledExecutorService.shutdownNow();
-             executorService.shutdownNow();
             Thread.currentThread().interrupt();
         }
-        // No need to explicitly close boltApp or apiClient normally
     }
 
-    // Send message remains largely the same, but uses the injected apiClient
-    public void sendMessage(final String messageText, final String username, final String icon) {
-         // Don't send if channel ID wasn't found
-         if (channelId == null) {
-             plugin.getLogger().warning("Cannot send message to Slack, channel ID is not set.");
-             return;
-         }
-
-        executorService.submit(() -> {
+    private void closeResources() {
+        try {
+            if (socket != null) {
+                var client = socket.getClient();
+                try {
+                    socket.close();
+                } finally {
+                    // SocketModeApp.close() disconnects but does not close the client's reconnect scheduler.
+                    if (client != null) client.close();
+                }
+            }
+        } catch (Exception e) {
+            plugin.getLogger().warning("Could not close the Slack socket cleanly.");
+        } finally {
             try {
-                final String strippedMessage = ChatColor.stripColor(messageText);
-                final String formatMsg = convertMinecraftMentionsToSlackTags(strippedMessage);
-
-                ChatPostMessageRequest.ChatPostMessageRequestBuilder requestBuilder = ChatPostMessageRequest.builder()
-                        .channel(channelId)
-                        .text(formatMsg);
-
-                if (username != null) {
-                    requestBuilder.username(username);
-                    // Use icon URL if provided, otherwise fallback to config (ensure config key exists)
-                    requestBuilder.iconUrl(icon != null ? icon : plugin.getConfig().getString(ConfigConstants.SLACK_PLAYER_ICON_FALLBACK, null)); 
-                } else {
-                    requestBuilder.username(plugin.getConfig().getString(ConfigConstants.I18N_BOT_NAME, "Minecraft Bot"));
-                    requestBuilder.iconUrl(plugin.getConfig().getString(ConfigConstants.SLACK_ICON, null)); // Use configured bot icon
-                }
-
-                ChatPostMessageResponse response = apiClient.chatPostMessage(requestBuilder.build());
-
-                 if (!response.isOk()) {
-                      plugin.getLogger().warning("Failed to send message to Slack: " + response.getError());
-                      if (response.getErrors() != null) {
-                           response.getErrors().forEach(err -> plugin.getLogger().warning(" - " + err.toString()));
-                      }
-                 } else if (debug) {
-                    plugin.getLogger().info("[Slack] [Debug] Sent \"" + formatMsg + "\" to Slack channel " + channelId);
-                }
-            } catch (IOException | SlackApiException e) {
-                 plugin.getLogger().severe("Error sending message to Slack: " + e.getMessage());
-                e.printStackTrace();
-            } catch (Exception e) { // Catch unexpected errors
-                plugin.getLogger().severe("Unexpected error sending Slack message: " + e.getMessage());
-                e.printStackTrace();
-            }
-        });
-    }
-
-    // Renamed from convertMentions
-    private String convertMinecraftMentionsToSlackTags(String message) {
-        if (!userCachePopulated) { // Don't attempt conversion if cache isn't ready
-             plugin.getLogger().fine("User cache not populated, skipping Minecraft mention conversion.");
-             return message;
-         }
-        final String regex = "@([\\w.]+)"; // Matches @ followed by word characters or dots
-        final Pattern pattern = Pattern.compile(regex);
-        final Matcher matcher = pattern.matcher(message);
-        StringBuffer sb = new StringBuffer(); // Use StringBuffer for efficient replacement
-
-        // Use cache
-        while (matcher.find()) {
-            String mentionName = matcher.group(1).toLowerCase(); // Use lowercase for lookup
-            User user = userNameMap.get(mentionName);
-            
-            // Replace if found, otherwise keep original mention
-            if (user != null) {
-                matcher.appendReplacement(sb, "<@" + user.getId() + ">");
-            } else {
-                matcher.appendReplacement(sb, matcher.group(0)); // Keep original @mention if user not found
+                if (slack != null) slack.close();
+            } catch (Exception e) {
+                plugin.getLogger().warning("Could not close the Slack HTTP client cleanly.");
             }
         }
-        
-        matcher.appendTail(sb);
-        return sb.toString();
     }
-
-
-    // Renamed from convertMentionsToUser
-    private String convertSlackMentionsToUsernames(String message) {
-        if (!userCachePopulated) { // Don't attempt conversion if cache isn't ready
-             plugin.getLogger().fine("User cache not populated, skipping Slack mention conversion.");
-             return message;
-         }
-        final String regex = "<@([A-Z0-9]+)>"; // Slack user IDs are typically uppercase alphanumeric
-        final Pattern pattern = Pattern.compile(regex);
-        final Matcher matcher = pattern.matcher(message);
-        StringBuffer sb = new StringBuffer();
-
-        // Use cache
-        while (matcher.find()) {
-            String userId = matcher.group(1);
-            String userName = getSlackUserName(userId); // Use the helper method which checks cache
-            
-            // Replace with @Username if found (and not null/empty), otherwise keep original tag
-            if (userName != null && !userName.equals(userId)) { // Check if we got a name back, not just the ID fallback
-                matcher.appendReplacement(sb, "@" + userName);
-            } else {
-                matcher.appendReplacement(sb, matcher.group(0)); // Keep original <@...> if user not found
-            }
-        }
-
-        matcher.appendTail(sb);
-        return sb.toString();
-    }
-    
-    // Unused method removed: parseMentions
-
-    // --- Command Handler Methods ---
-
-    private void handleListCommand(MessageEvent event, com.slack.api.bolt.context.builtin.EventContext ctx) {
-        // Getting online players is generally thread-safe as it returns a snapshot
-        Collection<? extends Player> onlinePlayers = Bukkit.getOnlinePlayers();
-        int playerCount = onlinePlayers.size();
-        String playerListString;
-
-        if (playerCount == 0) {
-            playerListString = "No players online.";
-        } else {
-            String[] playerNames = onlinePlayers.stream()
-                                                .map(Player::getName) // Or getDisplayName()
-                                                .toArray(String[]::new);
-            playerListString = "Online players (" + playerCount + "): " + String.join(", ", playerNames);
-        }
-
-        // Send the response back to the originating channel
-        try {
-            // Use ctx.say() for convenience - it uses the underlying client
-            ctx.say(playerListString);
-            if (debug) {
-                 plugin.getLogger().info("[Slack] Handled !list command from user " + event.getUser());
-            }
-        } catch (IOException | SlackApiException e) {
-            plugin.getLogger().severe("Failed to send !list response to Slack: " + e.getMessage());
-        }
-    }
-
-    private void handleStatusCommand(MessageEvent event, com.slack.api.bolt.context.builtin.EventContext ctx) {
-        // Bukkit.getTPS() is thread-safe
-        double[] tps = Bukkit.getTPS(); // Returns array: [1m, 5m, 15m]
-        String tpsString = String.format("TPS (1m, 5m, 15m): %.2f, %.2f, %.2f", tps[0], tps[1], tps[2]);
-
-        // Get memory usage (rough estimate)
-        Runtime runtime = Runtime.getRuntime();
-        long maxMemory = runtime.maxMemory() / 1024 / 1024; // MB
-        long allocatedMemory = runtime.totalMemory() / 1024 / 1024; // MB
-        long freeMemory = runtime.freeMemory() / 1024 / 1024; // MB
-        long usedMemory = allocatedMemory - freeMemory;
-        String memoryString = String.format("Memory: %d MB / %d MB (Max: %d MB)", usedMemory, allocatedMemory, maxMemory);
-
-        int playerCount = Bukkit.getOnlinePlayers().size();
-        String playersString = "Online Players: " + playerCount;
-
-        String statusMessage = "Server Status:\n" + tpsString + "\n" + playersString + "\n" + memoryString;
-
-        // Send the response back
-        try {
-            ctx.say(statusMessage);
-             if (debug) {
-                 plugin.getLogger().info("[Slack] Handled !tps/!status command from user " + event.getUser());
-            }
-        } catch (IOException | SlackApiException e) {
-            plugin.getLogger().severe("Failed to send !status response to Slack: " + e.getMessage());
-        }
-    }
-
-    // --- End Command Handler Methods ---
 }

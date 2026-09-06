@@ -1,46 +1,47 @@
-# Create a bot at https://my.slack.com/services/new/bot and paste token here.
+# Create a Slack app at https://api.slack.com/apps (see README for scopes and events).
 
 # Slack integration configuration
 slack:
   # Set to true to enable Slack integration, false to disable
-  enabled: true             
+  enabled: true
   # Your Slack Bot Token (starts with xoxb-)
-  token: ""                 
+  token: ""
   # Your Slack App-Level Token for Socket Mode (starts with xapp-)
-  app-token: ""             
-  # The Slack channel name (without #) to connect to and relay messages
-  channel: "general"          
+  app-token: ""
+  # Slack channel ID (recommended; supports private channels) or name (without #)
+  channel: "general"
   # URL for the bot's profile picture in Slack (leave empty for default)
-  icon: ""                  
-  # Set to true for extra diagnostic logging in the server console
-  debug: false              
+  icon: ""
+  # Log delivery status without logging message contents or tokens
+  debug: false
   # How often (in minutes) to refresh the Slack user list cache (for @mentions)
-  cacheRefreshMinutes: 60 
+  cacheRefreshMinutes: 60
 
 # Internationalization / Message Customization
 i18n:
   # Name used by the bot when posting messages (e.g., server status)
-  botName: "Minecraft"       
+  botName: "Minecraft"
   # Message sent to Slack when the bot connects
-  connected: ":white_check_mark: Online" 
+  connected: ":white_check_mark: Online"
   # Message sent to Slack when the bot disconnects
-  disconnected: ":x: Offline"    
+  disconnected: ":x: Offline"
   # Message format for player joins
-  joinedGame: "_Joined the game_" 
+  joinedGame: "_Joined the game_"
   # Message format for player quits
-  leftGame: "_Left the game_"     
+  leftGame: "_Left the game_"
   # Prefix for advancement messages
-  advancementDone: ":trophy: Has made the advancement " 
+  advancementDone: ":trophy: Has made the advancement "
   # Prefix for player death messages (followed by Minecraft's death message)
-  death: ":skull: "              
+  death: ":skull: "
   # Prefix for command messages (if options.echoCommands is true)
-  commandExecuted: ":warning: Executed command: " 
+  commandExecuted: ":warning: Executed command: "
+
+  # Two string placeholders: Slack display name, then message text
+  slackToMinecraftFormat: "[Slack] <%s> %s"
 
 # Other plugin options
 options:
-  # Set to true to send messages to Slack when players use commands
-  echoCommands: true        
+  # Opt in to relay command names only. Arguments are never sent to Slack.
+  echoCommands: false
   # List of player UUIDs whose messages/events should NOT be relayed to Slack
-  ignoredPlayers:
-    - "example-uuid-1"
-    - "example-uuid-2"
+  ignoredPlayers: []

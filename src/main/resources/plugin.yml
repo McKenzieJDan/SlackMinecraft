@@ -1,5 +1,17 @@
 name: SlackMinecraft
-version: 2.0.0
+version: '${project.version}'
 author: McKenzieJDan
 main: com.mckenziejdan.slackminecraft.SlackMinecraft
-api-version: '1.21'
+api-version: '26.2'
+description: Bidirectional Minecraft and Slack chat bridge using Socket Mode.
+website: https://github.com/Staticpast/SlackMinecraft
+commands:
+  slackminecraft:
+    description: Manage players excluded from the Slack relay.
+    aliases: [smc]
+    usage: /<command> ignore <add|remove|list> [playername|uuid]
+    permission: slackminecraft.admin
+permissions:
+  slackminecraft.admin:
+    description: Manage the Slack relay ignore list.
+    default: op
