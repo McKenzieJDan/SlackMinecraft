@@ -6,7 +6,7 @@
 
     <groupId>com.mckenziejdan</groupId>
     <artifactId>SlackMinecraft</artifactId>
-    <version>2.0.0-SNAPSHOT</version>
+    <version>${revision}</version>
 
     <licenses>
         <license>
@@ -27,6 +27,7 @@
     </scm>
 
     <properties>
+        <revision>2.0.0-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>
         <slack.version>1.51.0</slack.version>
@@ -94,6 +95,12 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <version>3.6.0</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <pluginJar>${project.build.directory}/${project.build.finalName}.jar</pluginJar>
+                        <pluginVersion>${project.version}</pluginVersion>
+                    </systemPropertyVariables>
+                </configuration>
                 <executions><execution><goals><goal>integration-test</goal><goal>verify</goal></goals></execution></executions>
             </plugin>
             <plugin>

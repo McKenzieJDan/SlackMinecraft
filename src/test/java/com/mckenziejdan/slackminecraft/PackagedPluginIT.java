@@ -8,9 +8,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class PackagedPluginIT {
     @Test void bundledSlackClientLoadsWithoutServerProvidedLibraries() throws Exception {
-        Path jar = Path.of("target/SlackMinecraft-2.0.0-SNAPSHOT.jar");
+        Path jar = Path.of(System.getProperty("pluginJar"));
         try (JarFile contents = new JarFile(jar.toFile())) {
             assertNotNull(contents.getEntry("plugin.yml"));
+            try (var descriptor = contents.getInputStream(contents.getEntry("plugin.yml"))) {
+                String yaml = new String(descriptor.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                assertTrue(yaml.contains("version: '" + System.getProperty("pluginVersion") + "'"));
+            }
             assertNull(contents.getEntry("org/bukkit/Bukkit.class"));
             assertNull(contents.getEntry("com/slack/api/Slack.class"));
             assertNotNull(contents.getEntry("META-INF/services/com.mckenziejdan.slackminecraft.internal.slf4j.spi.SLF4JServiceProvider"));

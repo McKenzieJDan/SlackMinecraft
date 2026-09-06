@@ -104,11 +104,15 @@ A channel ID avoids channel enumeration. Name lookup follows pagination. A faile
 - The packaged-JAR test uses an isolated class loader. It checks bundled client loading, not an authenticated Slack exchange.
 - Live server checks are defined in [shaping/chat-bridge.md](shaping/chat-bridge.md#acceptance-checks).
 
+## Releases
+
+`mise run release -- <version>` builds and verifies locally, then uses GitHub CLI to create a release with its JAR and notes. It requires a clean `dev` checkout that matches `origin/dev`. The release targets that exact commit. It does not require GitHub Actions. See [the release guide](development.md#release-from-your-computer) and [ADR 0002](adr/0002-build-releases-locally.md).
+
 ## Open decisions
 
 These decisions have no agreed policy in this repo. Resolve the relevant decision before a change depends on it. Do not expand the current scope to settle unrelated questions.
 
-- **Release process.** The build workflow uploads a JAR artifact. A versioning, signing and public release workflow is not defined.
+- **Release signing.** The local release command uploads the tested JAR. Artifact signing and attestations are not configured.
 - **Formatting and static analysis.** EditorConfig sets editor defaults. A Java formatter and a CI formatting or static-analysis check are not selected.
 
 Record significant decisions in [adr/](adr/). Treat durable delivery, more Slack channels and additional server platforms as new feature proposals, not implied requirements.

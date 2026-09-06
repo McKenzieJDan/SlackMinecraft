@@ -21,3 +21,7 @@ run = "mvn --batch-mode --no-transfer-progress clean verify"
 [tasks.clean]
 description = "Remove Maven build output"
 run = "mvn --batch-mode --no-transfer-progress clean"
+
+[tasks.release]
+description = "Build locally and create a GitHub release with notes and the JAR"
+run = "bash scripts/release.sh"

@@ -15,5 +15,6 @@ Record decisions that change a runtime boundary, dependency strategy, data contr
 | Record | Status | Decision |
 | --- | --- | --- |
 | [0001-target-minecraft-26-2.md](0001-target-minecraft-26-2.md) | Accepted | Target Spigot/Paper 26.2 and Java 25. |
+| [0002-build-releases-locally.md](0002-build-releases-locally.md) | Accepted | Build and publish releases locally through mise and GitHub CLI. |
 
 This index starts with the current modernisation. It is not a complete history of the plugin.
