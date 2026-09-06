@@ -40,7 +40,7 @@ public class IgnoreCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        String subCommand = args[1].toLowerCase();
+        String subCommand = args[1].toLowerCase(Locale.ROOT);
 
         switch (subCommand) {
             case "add":
@@ -62,15 +62,14 @@ public class IgnoreCommand implements CommandExecutor, TabCompleter {
 
     private void handleAdd(CommandSender sender, String[] args) {
         if (args.length != 3) {
-            sender.sendMessage(ChatColor.RED + "Usage: /" + (sender instanceof Player ? "smc" : "slackminecraft") + " ignore add <playername>");
+            sender.sendMessage(ChatColor.RED + "Usage: /" + (sender instanceof Player ? "smc" : "slackminecraft") + " ignore add <playername|uuid>");
             return;
         }
         String playerName = args[2];
-        OfflinePlayer targetPlayer = Bukkit.getOfflinePlayer(playerName); // Works for online/offline
-        UUID targetUUID = targetPlayer.getUniqueId();
+        UUID targetUUID = resolvePlayer(playerName);
 
         if (targetUUID == null) { // Should rarely happen unless name is invalid
-            sender.sendMessage(ChatColor.RED + "Could not find UUID for player: " + playerName);
+            sender.sendMessage(ChatColor.RED + "Use a known player name or UUID: " + playerName);
             return;
         }
 
@@ -92,15 +91,14 @@ public class IgnoreCommand implements CommandExecutor, TabCompleter {
 
     private void handleRemove(CommandSender sender, String[] args) {
         if (args.length != 3) {
-            sender.sendMessage(ChatColor.RED + "Usage: /" + (sender instanceof Player ? "smc" : "slackminecraft") + " ignore remove <playername>");
+            sender.sendMessage(ChatColor.RED + "Usage: /" + (sender instanceof Player ? "smc" : "slackminecraft") + " ignore remove <playername|uuid>");
             return;
         }
         String playerName = args[2];
-        OfflinePlayer targetPlayer = Bukkit.getOfflinePlayer(playerName);
-        UUID targetUUID = targetPlayer.getUniqueId();
+        UUID targetUUID = resolvePlayer(playerName);
 
         if (targetUUID == null) {
-            sender.sendMessage(ChatColor.RED + "Could not find UUID for player: " + playerName);
+            sender.sendMessage(ChatColor.RED + "Use a known player name or UUID: " + playerName);
             return;
         }
 
@@ -118,6 +116,20 @@ public class IgnoreCommand implements CommandExecutor, TabCompleter {
         playerListener.loadIgnoredPlayers(); // Reload listener's internal set
 
         sender.sendMessage(ChatColor.GREEN + "Removed " + playerName + " (" + uuidString + ") from the ignore list.");
+    }
+
+    private UUID resolvePlayer(String input) {
+        try {
+            return UUID.fromString(input);
+        } catch (IllegalArgumentException ignored) {
+            // Only consult local players. Name-based getOfflinePlayer can block on Mojang HTTP.
+            Player online = Bukkit.getPlayerExact(input);
+            if (online != null) return online.getUniqueId();
+            for (OfflinePlayer player : Bukkit.getOfflinePlayers()) {
+                if (input.equalsIgnoreCase(player.getName())) return player.getUniqueId();
+            }
+            return null;
+        }
     }
 
     private void handleList(CommandSender sender) {
@@ -140,7 +152,7 @@ public class IgnoreCommand implements CommandExecutor, TabCompleter {
     }
 
     private void sendUsage(CommandSender sender, String label) {
-        sender.sendMessage(ChatColor.RED + "Usage: /" + label + " ignore <add|remove|list> [playername]");
+        sender.sendMessage(ChatColor.RED + "Usage: /" + label + " ignore <add|remove|list> [playername|uuid]");
     }
 
     @Override

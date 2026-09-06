@@ -1,16 +1,19 @@
-* Please review the [README.md](../blob/master/README.md) to this repository.
-* Make sure you are making a pull request against the correct branch.
-* Add relevant labels, add to project board if necessary and request reviewers.
-* Refer to full code review guidelines and checklist.
+## Change
 
-- [ ] PR has narrow, defined scope
-- [ ] Commit history is clean and up-to-date
-- [ ] Dependencies are locked to specific versions
-- [ ] No breaking changes, unless justified
-- [ ] Relevant documentation is updated
+State the problem and the resulting behaviour. Link the relevant feature document or ADR when one applies.
 
-### Description
-> What, why & how.\
-> List any tech debt and make relevant issues.\
-> List any new dependencies and justify.\
-> Any related issues/PRs?
+## Validation
+
+State which checks ran and their results. Separate automated checks from live server tests. State any checks that remain unverified.
+
+## Compatibility
+
+State changes to server requirements, configuration, Slack scopes or existing behaviour. Write "None" when the change has no compatibility impact.
+
+## Review
+
+- [ ] The change has one clear scope.
+- [ ] The relevant checks pass, or a blocker is stated.
+- [ ] Documentation matches the implementation.
+- [ ] Configuration and dependency changes follow [the conventions](conventions.md).
+- [ ] The change preserves work outside its scope.

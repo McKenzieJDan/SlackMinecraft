@@ -2,6 +2,7 @@ package com.mckenziejdan.slackminecraft;
 
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerAdvancementDoneEvent;
@@ -9,17 +10,15 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 
-import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 public class PlayerListener implements Listener {
     private final SlackBot slackBot;
     private final SlackMinecraft plugin;
-    private final Set<UUID> ignoredPlayerUUIDs = new HashSet<>();
+    private volatile Set<UUID> ignoredPlayerUUIDs = Set.of();
 
     public PlayerListener(SlackMinecraft plugin, SlackBot slackBot) {
         this.plugin = plugin;
@@ -28,16 +27,17 @@ public class PlayerListener implements Listener {
     }
 
     public void loadIgnoredPlayers() {
-        ignoredPlayerUUIDs.clear();
+        Set<UUID> updated = new HashSet<>();
         List<String> ignoredList = plugin.getConfig().getStringList(ConfigConstants.OPTIONS_IGNORED_PLAYERS);
         for (String uuidString : ignoredList) {
             if (uuidString == null || uuidString.isEmpty() || uuidString.startsWith("example-")) continue;
             try {
-                ignoredPlayerUUIDs.add(UUID.fromString(uuidString));
+                updated.add(UUID.fromString(uuidString));
             } catch (IllegalArgumentException e) {
                 plugin.getLogger().warning("Invalid UUID format in options.ignoredPlayers: " + uuidString);
             }
         }
+        ignoredPlayerUUIDs = Set.copyOf(updated);
         plugin.getLogger().info("Loaded " + ignoredPlayerUUIDs.size() + " ignored player UUIDs.");
     }
 
@@ -45,7 +45,7 @@ public class PlayerListener implements Listener {
         return ignoredPlayerUUIDs.contains(playerUUID);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerJoin(PlayerJoinEvent playerJoinEvent) {
         if (slackBot == null) return;
         if (isPlayerIgnored(playerJoinEvent.getPlayer().getUniqueId())) return;
@@ -55,7 +55,7 @@ public class PlayerListener implements Listener {
         slackBot.sendMessage(plugin.getConfig().getString(ConfigConstants.I18N_JOINED_GAME), playerName, icon);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerQuit(PlayerQuitEvent playerQuitEvent) {
         if (slackBot == null) return;
         if (isPlayerIgnored(playerQuitEvent.getPlayer().getUniqueId())) return;
@@ -65,9 +65,9 @@ public class PlayerListener implements Listener {
         slackBot.sendMessage(plugin.getConfig().getString(ConfigConstants.I18N_LEFT_GAME), playerName, icon);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerChat(AsyncPlayerChatEvent e) {
-        if (slackBot == null) return;
+        if (slackBot == null || e.isCancelled()) return;
         if (isPlayerIgnored(e.getPlayer().getUniqueId())) return;
         String playerMessage = e.getMessage();
         String playerName = e.getPlayer().getDisplayName();
@@ -76,10 +76,11 @@ public class PlayerListener implements Listener {
         slackBot.sendMessage(playerMessage, playerName, icon);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerDeath(PlayerDeathEvent playerDeathEvent) {
         if (slackBot == null) return;
         if (isPlayerIgnored(playerDeathEvent.getEntity().getUniqueId())) return;
+        if (playerDeathEvent.getDeathMessage() == null) return;
         String deathMessage = plugin.getConfig().getString(ConfigConstants.I18N_DEATH) + playerDeathEvent.getDeathMessage();
         String playerName = playerDeathEvent.getEntity().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + playerDeathEvent.getEntity().getUniqueId();
@@ -87,14 +88,13 @@ public class PlayerListener implements Listener {
         slackBot.sendMessage(deathMessage, playerName, icon);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerAdvancement(PlayerAdvancementDoneEvent e){
         if (slackBot == null) return;
         if (isPlayerIgnored(e.getPlayer().getUniqueId())) return;
-        String rawAdvancementName = e.getAdvancement().getKey().getKey();
-        String advancementName = Arrays.stream(rawAdvancementName.substring(rawAdvancementName.lastIndexOf("/") + 1).toLowerCase().split("_"))
-                .map(s -> s.substring(0, 1).toUpperCase() + s.substring(1))
-                .collect(Collectors.joining(" "));
+        var display = e.getAdvancement().getDisplay();
+        if (display == null || !display.shouldAnnounceChat()) return;
+        String advancementName = display.getTitle();
         String message = plugin.getConfig().getString(ConfigConstants.I18N_ADVANCEMENT_DONE) + advancementName;
         String playerName = e.getPlayer().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + e.getPlayer().getUniqueId();
@@ -102,15 +102,15 @@ public class PlayerListener implements Listener {
         slackBot.sendMessage(message, playerName, icon);
     }
 
-    @EventHandler
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerCommand(PlayerCommandPreprocessEvent e) {
-        if (slackBot == null) return;
+        if (slackBot == null || e.isCancelled()) return;
         if (isPlayerIgnored(e.getPlayer().getUniqueId())) return;
         if (!plugin.getConfig().getBoolean(ConfigConstants.OPTIONS_ECHO_COMMANDS)) {
             return;
         }
 
-        String message = plugin.getConfig().getString(ConfigConstants.I18N_COMMAND_EXECUTED) + e.getMessage();
+        String message = plugin.getConfig().getString(ConfigConstants.I18N_COMMAND_EXECUTED) + e.getMessage().split("\\s+", 2)[0];
         String playerName = e.getPlayer().getDisplayName();
         String icon = "https://www.mc-heads.net/avatar/" + e.getPlayer().getUniqueId();
 
