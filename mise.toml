@@ -1,0 +1,23 @@
+[tools]
+java = "temurin-25.0.4+101.0.LTS"
+maven = "3.9.16"
+
+[tasks.setup]
+description = "Resolve Maven project dependencies"
+run = "mvn --batch-mode --no-transfer-progress dependency:resolve"
+
+[tasks.build]
+description = "Run unit tests and build the plugin JAR"
+run = "mvn --batch-mode --no-transfer-progress package"
+
+[tasks.test]
+description = "Run unit and regression tests"
+run = "mvn --batch-mode --no-transfer-progress test"
+
+[tasks.verify]
+description = "Clean, test, build and verify the packaged plugin"
+run = "mvn --batch-mode --no-transfer-progress clean verify"
+
+[tasks.clean]
+description = "Remove Maven build output"
+run = "mvn --batch-mode --no-transfer-progress clean"
