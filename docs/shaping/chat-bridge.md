@@ -70,7 +70,7 @@ Run these checks on a staging Spigot/Paper 26.2 server with Java 25 and a Slack 
 10. Try the ignore commands without administrator permission. Check that access is refused.
 11. Stop the server. Check resource cleanup and the best-effort offline notification. Restart and check that one connection resumes normal relay.
 
-Automated tests cover cases such as queue capacity, failed cache refreshes, channel pagination, message conversion and scheduled callbacks after shutdown. Run them with `mise run verify`.
+Automated tests cover queue capacity, exhausted retries and cooldowns, uncertain delivery, failed cache refreshes, channel pagination, message conversion, startup cleanup, shutdown during a send, scheduled callbacks after shutdown, and ignore-command permissions and persistence. Run them with `mise run verify`.
 
 ## Open questions
 

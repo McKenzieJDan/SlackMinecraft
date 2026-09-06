@@ -20,11 +20,4 @@ class MessageFormatterTest {
         assertEquals("Docs (https://example.com) <hello> &lt;", MessageFormatter.toMinecraft(
                 "<https://example.com|Docs> &lt;hello&gt; &amp;lt;", id -> id));
     }
-    @Test void rateLimitHeaderIsValidated() {
-        assertEquals(1, SlackBot.retryAfterSeconds(null));
-        assertEquals(1, SlackBot.retryAfterSeconds("bad"));
-        assertEquals(1, SlackBot.retryAfterSeconds("-10"));
-        assertEquals(30, SlackBot.retryAfterSeconds("30"));
-        assertEquals(3600, SlackBot.retryAfterSeconds("99999999"));
-    }
 }

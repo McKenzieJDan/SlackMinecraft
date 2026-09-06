@@ -7,7 +7,6 @@ import com.slack.api.bolt.AppConfig;
 import com.slack.api.bolt.socket_mode.SocketModeApp;
 import com.slack.api.methods.MethodsClient;
 import com.slack.api.methods.SlackApiException;
-import com.slack.api.methods.request.chat.ChatPostMessageRequest;
 import com.slack.api.model.event.MessageEvent;
 import com.slack.api.socket_mode.SocketModeClient;
 import org.bukkit.ChatColor;
@@ -22,11 +21,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class SlackBot {
-    private record Outgoing(String text, String username, String icon) {}
+    interface ConnectionFactory {
+        Slack createSlack(SlackConfig config);
+        SocketModeApp createSocket(String appToken, App app) throws IOException;
+    }
+
+    private static final ConnectionFactory CONNECTIONS = new ConnectionFactory() {
+        public Slack createSlack(SlackConfig config) { return Slack.getInstance(config); }
+        public SocketModeApp createSocket(String appToken, App app) throws IOException {
+            return new SocketModeApp(appToken, app, SocketModeClient.Backend.JavaWebSocket);
+        }
+    };
 
     private final SlackMinecraft plugin;
     private final SlackDirectory directory = new SlackDirectory();
-    private final ArrayBlockingQueue<Outgoing> outgoing = new ArrayBlockingQueue<>(256);
+    private final ArrayBlockingQueue<SlackDelivery.Message> outgoing = new ArrayBlockingQueue<>(256);
     private final AtomicBoolean stopping = new AtomicBoolean();
     private final AtomicLong lastQueueWarning = new AtomicLong();
     private final String botToken;
@@ -41,15 +50,21 @@ public class SlackBot {
     private final long refreshMinutes;
     private final boolean debug;
     private final Thread worker;
+    private final ConnectionFactory connections;
     private volatile String channelId;
     private volatile boolean connected;
     // Network resources are owned and closed by the worker, including during startup failure.
     private Slack slack;
     private SocketModeApp socket;
     private MethodsClient api;
-    private long nextSendNanos;
+    private SlackDelivery delivery;
 
     public SlackBot(SlackMinecraft plugin, String botToken, String appToken, String channel) {
+        this(plugin, botToken, appToken, channel, CONNECTIONS);
+    }
+
+    SlackBot(SlackMinecraft plugin, String botToken, String appToken, String channel, ConnectionFactory connections) {
+        this.connections = connections;
         this.plugin = plugin;
         this.botToken = botToken;
         this.appToken = appToken;
@@ -87,9 +102,12 @@ public class SlackBot {
             config.setHttpClientCallTimeoutMillis(5000);
             config.setHttpClientReadTimeoutMillis(5000);
             config.setStatsEnabled(false);
-            slack = Slack.getInstance(config);
+            slack = connections.createSlack(config);
             api = slack.methods(botToken);
             channelId = directory.findChannel(api, channel);
+            delivery = new SlackDelivery(api, directory,
+                    new SlackDelivery.Settings(channelId, botName, botIcon, playerIconFallback, debug),
+                    plugin.getLogger(), stopping::get);
             if (stopping.get()) return;
             refreshUsers();
             if (stopping.get()) return;
@@ -98,11 +116,13 @@ public class SlackBot {
                 handleIncoming(payload.getEvent());
                 return ctx.ack();
             });
-            socket = new SocketModeApp(appToken, app, SocketModeClient.Backend.JavaWebSocket);
+            socket = connections.createSocket(appToken, app);
             for (int attempt = 1; !stopping.get(); attempt++) {
                 try {
                     socket.startAsync();
                     break;
+                } catch (InterruptedException e) {
+                    throw e;
                 } catch (Exception e) {
                     if (attempt == 3) throw e;
                     plugin.getLogger().warning("Slack connection failed; retrying in five seconds.");
@@ -112,11 +132,11 @@ public class SlackBot {
             if (stopping.get()) return;
             connected = true;
             plugin.getLogger().info("Connected to Slack Socket Mode.");
-            post(new Outgoing(connectedMessage, null, null));
+            delivery.send(new SlackDelivery.Message(connectedMessage, null, null));
             long nextRefresh = System.nanoTime() + TimeUnit.MINUTES.toNanos(Math.max(1, refreshMinutes));
             while (!stopping.get()) {
-                Outgoing message = outgoing.poll(1, TimeUnit.SECONDS);
-                if (message != null) post(message);
+                SlackDelivery.Message message = outgoing.poll(1, TimeUnit.SECONDS);
+                if (message != null) delivery.send(message);
                 if (refreshMinutes > 0 && System.nanoTime() >= nextRefresh) {
                     refreshUsers();
                     nextRefresh = System.nanoTime() + TimeUnit.MINUTES.toNanos(refreshMinutes);
@@ -131,11 +151,10 @@ public class SlackBot {
         } finally {
             stopping.set(true);
             outgoing.clear();
-            nextSendNanos = 0; // Shutdown must not wait out a long rate-limit delay.
             Thread.interrupted(); // Allow bounded network cleanup after an interrupted queue wait.
             try {
-                if (connected && api != null && !disconnectedMessage.isBlank()) {
-                    post(new Outgoing(disconnectedMessage, null, null));
+                if (connected && delivery != null && !disconnectedMessage.isBlank()) {
+                    delivery.sendOffline(disconnectedMessage);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -202,58 +221,13 @@ public class SlackBot {
 
     public void sendMessage(String text, String username, String icon) {
         if (stopping.get() || text == null || text.isBlank()) return;
-        if (!outgoing.offer(new Outgoing(text, username, icon))) {
+        if (!outgoing.offer(new SlackDelivery.Message(text, username, icon))) {
             long now = System.nanoTime();
             long previous = lastQueueWarning.get();
             if ((previous == 0 || now - previous > TimeUnit.MINUTES.toNanos(1))
                     && lastQueueWarning.compareAndSet(previous, now)) {
                 plugin.getLogger().warning("Slack queue is full (256 messages); dropping new messages until it recovers.");
             }
-        }
-    }
-
-    private void post(Outgoing message) throws InterruptedException {
-        if (message.text() == null || message.text().isBlank()) return;
-        String text = MessageFormatter.toSlack(ChatColor.stripColor(message.text()), directory.userIds());
-        var request = ChatPostMessageRequest.builder().channel(channelId).text(text)
-                .username(ChatColor.stripColor(message.username() == null ? botName : message.username()))
-                .iconUrl(message.username() == null ? botIcon : message.icon() == null ? playerIconFallback : message.icon())
-                .unfurlLinks(false).unfurlMedia(false).build();
-        for (int attempt = 0; attempt < 3; attempt++) {
-            long delay = nextSendNanos - System.nanoTime();
-            if (delay > 0) TimeUnit.NANOSECONDS.sleep(delay);
-            try {
-                var response = api.chatPostMessage(request);
-                if (!response.isOk()) plugin.getLogger().warning("Slack rejected a message: " + response.getError());
-                else if (debug) plugin.getLogger().info("Delivered a message to the configured Slack channel.");
-                return;
-            } catch (SlackApiException e) {
-                if (e.getResponse().code() == 429 && attempt < 2 && !stopping.get()) {
-                    long seconds = retryAfterSeconds(e.getResponse().header("Retry-After"));
-                    if (seconds > 60) {
-                        plugin.getLogger().warning("Slack requested a long rate-limit delay; dropping this message.");
-                        nextSendNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
-                        return;
-                    }
-                    TimeUnit.SECONDS.sleep(seconds);
-                } else {
-                    plugin.getLogger().warning("Slack HTTP error " + e.getResponse().code() + "; message was not retried.");
-                    return;
-                }
-            } catch (IOException e) {
-                plugin.getLogger().warning("Slack message delivery failed; not retrying an uncertain delivery.");
-                return;
-            } finally {
-                nextSendNanos = Math.max(nextSendNanos, System.nanoTime() + TimeUnit.SECONDS.toNanos(1));
-            }
-        }
-    }
-
-    static long retryAfterSeconds(String value) {
-        try {
-            return Math.max(1, Math.min(3600, Long.parseLong(value)));
-        } catch (NumberFormatException e) {
-            return 1;
         }
     }
 

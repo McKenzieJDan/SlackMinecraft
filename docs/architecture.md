@@ -37,11 +37,14 @@ The Java sources currently share `com.mckenziejdan.slackminecraft`. These are cl
 | `PlayerListener` | Select Minecraft events for relay and maintain the ignored-player snapshot. |
 | `IgnoreCommand` | Check administrator permission and persist ignore-list changes. |
 | `SlackBot` | Own the connection, relay worker, outgoing queue, incoming scheduling and shutdown. |
+| `SlackDelivery` | Build outgoing requests, pace sends and apply retry and cooldown rules on the relay worker. |
 | `SlackDirectory` | Resolve channel names and publish complete user-cache snapshots. |
 | `MessageFormatter` | Convert mentions, links and escaped text between Minecraft and Slack. |
 | `ConfigConstants` | Name the existing configuration keys. |
 
 Keep text conversion independent of Bukkit and network calls. Keep Slack transport details out of player event selection. Split packages by feature when the code needs a boundary. Do not add layers to match a diagram.
+
+`SlackDelivery` keeps its send deadline on the relay worker. Its settings are immutable. Tests supply a clock and wait implementation to check cooldowns without real delays. `SlackBot` accepts a connection factory in its package-private constructor so lifecycle tests can run the worker with mocked Slack clients.
 
 ## Data and network boundaries
 
@@ -74,7 +77,7 @@ A channel ID avoids channel enumeration. Name lookup follows pagination. A faile
 - Minecraft event handlers add messages to a queue with a capacity of 256.
 - The worker sends at most one message per second during normal operation.
 - HTTP calls have five-second call and read timeouts.
-- HTTP 429 responses use `Retry-After`. Each message has at most three send attempts. Long rate-limit delays drop that message and delay later sends.
+- HTTP 429 responses use `Retry-After`. Each message has at most three send attempts. The cooldown also applies to later messages when the current message has no attempts left. Delays above 60 seconds drop the current message. Parsed delays are bounded to one second through one hour.
 - An uncertain network delivery is not retried. Retrying could post the same message twice.
 - A full queue drops new messages. Queue warnings are limited to one per minute.
 - Queue contents are not persisted.
@@ -90,7 +93,7 @@ A channel ID avoids channel enumeration. Name lookup follows pagination. A faile
 ### Shutdown
 
 - Stop accepting messages and interrupt the worker.
-- Discard queued messages and attempt an offline notification.
+- Discard queued messages and make one offline notification attempt without waiting for the outgoing cooldown. Do not retry the offline notification.
 - Close the Socket Mode app, its underlying client and the Slack HTTP resources.
 - Wait at most three seconds on the server thread. If cleanup is still running, it continues on the daemon worker and a warning is logged.
 - Treat the offline notification as best effort. Process exit can interrupt cleanup.
@@ -101,6 +104,7 @@ A channel ID avoids channel enumeration. Name lookup follows pagination. A faile
 - The plugin bundles its Slack runtime dependencies. Shade relocates them to avoid collisions with server and plugin libraries.
 - Preserve service descriptors and dependency license notices when packaging.
 - `*Test` classes run under Surefire. `*IT` classes run under Failsafe after packaging.
+- Delivery tests cover exhausted retries, uncertain delivery, request formatting, pacing and interruption. Lifecycle tests run the worker through startup failure, shutdown during a send and resource cleanup failures. Ignore-command tests cover permission checks, local player lookup, configuration persistence and listener updates.
 - The packaged-JAR test uses an isolated class loader. It checks bundled client loading, not an authenticated Slack exchange.
 - Live server checks are defined in [shaping/chat-bridge.md](shaping/chat-bridge.md#acceptance-checks).
 
