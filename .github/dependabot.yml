@@ -7,6 +7,10 @@ updates:
     groups:
       slack-sdk:
         patterns: ['com.slack.api:*']
+      slf4j:
+        patterns: ['org.slf4j:*']
+      byte-buddy:
+        patterns: ['net.bytebuddy:*']
   - package-ecosystem: github-actions
     directory: /
     schedule:
