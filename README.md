@@ -24,15 +24,21 @@ Chat and events relay automatically once connected. Command echoing is off by de
 
 - [Setup, commands & configuration](docs/setup.md)
 - [Development & repo layout](docs/development.md)
-- [Product](docs/product.md) · [Architecture](docs/architecture.md) · [Code conventions](docs/conventions.md)
+- [Product](docs/product.md)
+- [Architecture](docs/architecture.md)
+- [Code conventions](docs/conventions.md)
 - [Agent instructions](AGENTS.md)
 
 ## Used By
 
-[SuegoFaults](https://suegofaults.com/) — A curated adult Minecraft community where this plugin powers Slack chat and events integration.
+[SuegoFaults](https://suegofaults.com/) - A curated adult Minecraft community where this plugin powers Slack chat and events integration.
 
 ## Support
 
 If you find this plugin helpful, consider [buying me a coffee](https://www.paypal.com/paypalme/mckenzio) ☕
 
-[MIT License](LICENSE.md) · Made with ❤️ by [McKenzieJDan](https://github.com/McKenzieJDan).
+## License
+
+[MIT License](LICENSE.md)
+
+Made with ❤️ by [McKenzieJDan](https://github.com/McKenzieJDan)
